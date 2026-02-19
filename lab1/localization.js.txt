@@ -1,0 +1,97 @@
+// localization.js
+const Flags = require('./flags');
+
+class Localization {
+    // Вычисление координат игрока по двум флагам
+    static triangulate(flag1, flag2) {
+        const p1 = Flags[flag1.name];
+        const p2 = Flags[flag2.name];
+
+        if (!p1 || !p2) return null;
+
+        const d1 = flag1.distance;
+        const d2 = flag2.distance;
+
+        // Расстояние между флагами
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+
+        // Проверка на вырожденный случай
+        if (dist === 0) return null;
+
+        // Расстояние от p1 до проекции точки на линию p1-p2
+        const a = (d1*d1 - d2*d2 + dist*dist) / (2*dist);
+
+        // Высота треугольника
+        const h_sq = d1*d1 - a*a;
+        if (h_sq < 0) return null; // Флаги не соответствуют расстояниям
+        const h = Math.sqrt(h_sq);
+
+        // Точка на линии p1-p2
+        const xm = p1.x + a * dx / dist;
+        const ym = p1.y + a * dy / dist;
+
+        // Два возможных решения
+        const xs1 = xm + h * (-dy) / dist;
+        const ys1 = ym + h * dx / dist;
+
+        const xs2 = xm - h * (-dy) / dist;
+        const ys2 = ym - h * dx / dist;
+
+        return { sol1: { x: xs1, y: ys1 }, sol2: { x: xs2, y: ys2 } };
+    }
+
+    // Выбор правильного решения по третьему флагу
+    static resolveWithThirdFlag(sol1, sol2, flag3) {
+        const p3 = Flags[flag3.name];
+        if (!p3) return sol1; // нет третьего флага - берем первое
+
+        const d3_real = flag3.distance;
+
+        const d3_sol1 = Math.sqrt((sol1.x - p3.x)**2 + (sol1.y - p3.y)**2);
+        const d3_sol2 = Math.sqrt((sol2.x - p3.x)**2 + (sol2.y - p3.y)**2);
+
+        const err1 = Math.abs(d3_sol1 - d3_real);
+        const err2 = Math.abs(d3_sol2 - d3_real);
+
+        return err1 < err2 ? sol1 : sol2;
+    }
+
+    // Вычисление ориентации игрока
+    static computeOrientation(playerPos, flag) {
+        const flagPos = Flags[flag.name];
+        if (!flagPos) return 0;
+
+        const globalAngle = Math.atan2(
+            flagPos.y - playerPos.y,
+            flagPos.x - playerPos.x
+        ) * 180 / Math.PI;
+
+        let orientation = globalAngle - flag.direction;
+
+        // Нормализация угла
+        while (orientation > 180) orientation -= 360;
+        while (orientation < -180) orientation += 360;
+
+        return orientation;
+    }
+
+    // Вычисление координат другого игрока
+    static locateOtherPlayer(observerPos, observerOrient, observed) {
+        // По теореме косинусов
+        // Нам нужно расстояние от наблюдаемого игрока до флага
+        // Но у нас нет этой информации, поэтому упрощенно:
+        // Считаем, что видимый игрок находится в направлении observed.angle
+        // на расстоянии observed.distance
+
+        const angle = (observerOrient + observed.direction) * Math.PI / 180;
+
+        return {
+            x: observerPos.x + observed.distance * Math.cos(angle),
+            y: observerPos.y + observed.distance * Math.sin(angle)
+        };
+    }
+}
+
+module.exports = Localization;

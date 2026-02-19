@@ -1,0 +1,130 @@
+gidra@DESKTOP-6ASQ1EU:~/robocup-lab2$ cat navigation.js
+// navigation.js - Модуль для движения по маршруту
+// Соответствует практической работе 2
+
+class Navigation {
+    constructor() {
+        // Коэффициенты регулятора
+        this.Kp_angle = 0.8;      // Коэффициент поворота
+        this.Kp_speed = 5;        // Коэффициент скорости
+
+        // Пороговые значения
+        this.targetThreshold = 1.5;  // Когда считать, что цель достигнута
+        this.angleThreshold = 5;      // Когда можно начинать движение (градусов)
+
+        // Ограничения
+        this.maxDashPower = 100;
+        this.minDashPower = 20;
+    }
+
+    // Нормализация угла в диапазон [-180, 180]
+    normalizeAngle(angle) {
+        while (angle > 180) angle -= 360;
+        while (angle < -180) angle += 360;
+        return angle;
+    }
+
+    // Вычисление расстояния до цели
+    distanceToTarget(currentPos, targetPos) {
+        const dx = targetPos.x - currentPos.x;
+        const dy = targetPos.y - currentPos.y;
+        return Math.sqrt(dx*dx + dy*dy);
+    }
+
+    // Вычисление угла до цели
+    angleToTarget(currentPos, targetPos) {
+        const dx = targetPos.x - currentPos.x;
+        const dy = targetPos.y - currentPos.y;
+        return Math.atan2(dy, dx) * 180 / Math.PI;
+    }
+
+    // Вычисление команды для движения к цели
+    navigateToTarget(currentPos, currentOrientation, targetPos) {
+        // Расстояние до цели
+        const distance = this.distanceToTarget(currentPos, targetPos);
+
+        // Угол до цели
+        const targetAngle = this.angleToTarget(currentPos, targetPos);
+
+        // Ошибка ориентации
+        let angleError = this.normalizeAngle(targetAngle - currentOrientation);
+
+        // Решение: что делать
+        if (distance < this.targetThreshold) {
+            // Цель достигнута
+            return { type: "reached", command: null };
+        }
+
+        if (Math.abs(angleError) > this.angleThreshold) {
+            // Сначала поворачиваемся
+            let turnPower = this.Kp_angle * angleError;
+            // Ограничиваем максимальный поворот
+            if (turnPower > 180) turnPower = 180;
+            if (turnPower < -180) turnPower = -180;
+
+            return {
+                type: "turn",
+                command: { n: "turn", v: turnPower },
+                angleError: angleError,
+                distance: distance
+            };
+        } else {
+            // Потом бежим
+            let dashPower = this.Kp_speed * distance;
+
+            // Ограничения
+            if (dashPower > this.maxDashPower) dashPower = this.maxDashPower;
+            if (dashPower < this.minDashPower) dashPower = this.minDashPower;
+
+            // Торможение при приближении
+            if (distance < 5) {
+                dashPower = dashPower * 0.5;
+            }
+
+            return {
+                type: "dash",
+                command: { n: "dash", v: Math.round(dashPower) },
+                angleError: angleError,
+                distance: distance
+            };
+        }
+    }
+
+    // Проверка, видна ли цель (по флагам или мячу)
+    isTargetVisible(targetType, targetName, visibleObjects) {
+        if (targetType === "flag") {
+            // Ищем флаг по имени
+            return visibleObjects.some(obj => obj.name === targetName);
+        } else if (targetType === "ball") {
+            // Ищем мяч
+            return visibleObjects.some(obj => obj.name === "b");
+        }
+        return false;
+    }
+
+    // Поиск объекта среди видимых
+    findVisibleObject(targetType, targetName, visibleObjects) {
+        if (targetType === "flag") {
+            return visibleObjects.find(obj => obj.name === targetName);
+        } else if (targetType === "ball") {
+            return visibleObjects.find(obj => obj.name === "b");
+        }
+        return null;
+    }
+
+    // Стратегия поиска, если цель не видна
+    getSearchCommand(currentOrientation, searchStep) {
+        // Поворачиваемся на 90 градусов в поисках цели
+        // searchStep меняется от 0 до 3 для разных направлений
+        const searchAngles = [90, 180, -90, 0];
+        const angle = searchAngles[searchStep % searchAngles.length];
+
+        return {
+            type: "search",
+            command: { n: "turn", v: angle },
+            step: searchStep
+        };
+    }
+}
+
+module.exports = Navigation;

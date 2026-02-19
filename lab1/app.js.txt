@@ -1,0 +1,33 @@
+// app.js
+const Agent = require('./agent');
+
+// Параметры из методички
+const VERSION = 7;
+const TEAM_NAME = "teamA";
+
+// Создаем агента
+const agent = new Agent();
+
+// Подключаем сокет
+require('./socket')(agent, TEAM_NAME, VERSION);
+
+// Задание 1: получаем координаты из командной строки
+// Пример: node app.js -15 0 10
+const args = process.argv.slice(2);
+if (args.length >= 2) {
+    const startX = parseFloat(args[0]);
+    const startY = parseFloat(args[1]);
+    const rotateSpeed = args.length >= 3 ? parseFloat(args[2]) : 10;
+
+    // Устанавливаем скорость вращения
+    agent.rotateSpeed = rotateSpeed;
+
+    // Перемещаем игрока через 1 секунду после подключения
+    setTimeout(() => {
+        agent.moveTo(startX, startY);
+        console.log(`Rotate speed: ${rotateSpeed}`);
+    }, 1000);
+} else {
+    console.log("Usage: node app.js <x> <y> [rotate_speed]");
+    console.log("Example: node app.js -15 0 10");
+}
