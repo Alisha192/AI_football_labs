@@ -1,0 +1,399 @@
+// decisionTree.js — ИСПРАВЛЕННАЯ ВЕРСИЯ (активная защита)
+const fs = require('fs');
+
+class DecisionTree {
+    constructor(agent) {
+        this.agent = agent;
+        this.state = {
+            current: "root",
+            lastCommand: null,
+            lastCommandTime: 0,
+            memory: {
+                lastBallPos: null,
+                lastBallTime: 0,
+                teammates: {},
+                opponents: {},
+                lastGoalScored: 0,
+                lastGoalVisibleTime: 0,
+                stuckCount: 0,
+                lastPositions: []
+            }
+        };
+
+        this.tree = {
+            root: {
+                type: "condition",
+                check: (input) => {
+                    this.log("DEBUG", "Root check", { run: this.agent.run, hear: input.hear ? input.hear.message : 'none' });
+                    if (!this.agent.run) return "waiting";
+                    if (input.hear && input.hear.referee) {
+                        if (input.hear.referee.includes("play_on")) return "playOnCheck";
+                        if (input.hear.referee.includes("goal")) return "goalScored";
+                    }
+                    return "playOnCheck";
+                },
+                branches: { "waiting": "waiting", "playOnCheck": "playOnCheck", "goalScored": "goalScored" }
+            },
+
+            waiting: {
+                type: "exec",
+                action: (input) => { this.log("INFO", "⏳ Waiting for game to start..."); return null; },
+                next: "root"
+            },
+
+            goalScored: {
+                type: "exec",
+                action: (input) => {
+                    this.log("🎯", "GOAL DETECTED! Resetting route");
+                    this.agent.currentRouteIndex = 0;
+                    this.agent.dribbleState.goalScored = true;
+                    return null;
+                },
+                next: "root"
+            },
+
+            playOnCheck: {
+                type: "condition",
+                check: (input) => {
+                    if (this.agent.currentPos) {
+                        const isDefending = this.agent.currentPos.x < -20;
+                        this.log("DEBUG", `Position check: x=${this.agent.currentPos.x.toFixed(2)}, isDefending=${isDefending}`);
+                        return isDefending ? "defensive" : "offensive";
+                    }
+                    return "offensive";
+                },
+                branches: { "offensive": "offensive", "defensive": "defensive" }
+            },
+
+            offensive: {
+                type: "exec",
+                action: (input) => { this.log("⚔️", "Starting offensive play"); return null; },
+                next: "offensivePlay"
+            },
+
+            offensivePlay: {
+                type: "condition",
+                check: (input) => {
+                    this.log("DEBUG", "Offensive play check", {
+                        hasBall: !!input.ball,
+                        ballDist: input.ball ? input.ball.distance : 'none',
+                        hasGoal: !!input.targetGoal
+                    });
+
+                    if (this.agent.isGoalie) return "goalieDefense";
+                    if (!input.ball) return "searchBall";
+
+                    if (input.ball.distance < 1.2) {
+                        this.log("⚽", "Ball controlled", { dist: input.ball.distance.toFixed(2) });
+
+                        if (input.targetGoal) {
+                            const goalDist = input.targetGoal.distance;
+
+                            // Если близко к воротам - стреляем
+                            if (goalDist < 25 || (this.agent.currentPos && this.agent.currentPos.x > 30)) {
+                                this.log("💥", "SHOOTING!", { dist: goalDist.toFixed(1) });
+                                return "shoot";
+                            }
+
+                            // Иначе просто дриблинг к воротам
+                            return "dribbleNormal";
+                        } else {
+                            // Ворота не видны - ищем
+                            this.log("👀", "Goal not visible - searching");
+                            return "searchGoal";
+                        }
+                    } else {
+                        return "approachBall";
+                    }
+                },
+                branches: {
+                    "searchBall": "searchBall",
+                    "approachBall": "approachBall",
+                    "dribbleNormal": "dribbleNormal",
+                    "shoot": "shoot",
+                    "searchGoal": "searchGoal",
+                    "goalieDefense": "goalieDefense"
+                }
+            },
+
+            defensive: {
+                type: "exec",
+                action: (input) => { this.log("🛡️", "Starting defensive play"); return null; },
+                next: "defensivePlay"
+            },
+
+            defensivePlay: {
+                type: "condition",
+                check: (input) => {
+                    if (this.agent.isGoalie) return "goalieDefense";
+
+                    // Если мяч близко к нашим воротам - защищаем
+                    if (input.ball && input.ball.distance < 20 && this.agent.currentPos && this.agent.currentPos.x < -30) {
+                        this.log("🛡️", "Ball near our goal - defending!");
+                        return "defendGoal";
+                    }
+
+                    // Если мяч далеко, но мы в защите - все равно идем к мячу
+                    if (input.ball && input.ball.distance > 5) {
+                        this.log("🛡️", "Moving to intercept ball");
+                        return "defendIntercept";
+                    }
+
+                    // По умолчанию - возвращаемся в атаку
+                    return "offensive";
+                },
+                branches: {
+                    "defendGoal": "defendGoal",
+                    "defendIntercept": "defendIntercept",
+                    "goalieDefense": "goalieDefense",
+                    "offensive": "offensive"
+                }
+            },
+
+            defendIntercept: {
+                type: "exec",
+                action: (input) => {
+                    if (!input.ball) return { cmd: "turn", params: ["45"] };
+
+                    this.log("🛡️", "Intercepting ball", {
+                        dist: input.ball.distance.toFixed(2),
+                        dir: input.ball.direction.toFixed(2)
+                    });
+
+                    // Поворачиваемся к мячу и бежим к нему
+                    if (Math.abs(input.ball.direction) > 10) {
+                        return { cmd: "turn", params: [input.ball.direction.toFixed(2)] };
+                    } else {
+                        let dashPower = input.ball.distance > 10 ? 90 : 70;
+                        return { cmd: "dash", params: [dashPower.toString()] };
+                    }
+                },
+                next: "defensive"
+            },
+
+            searchBall: {
+                type: "exec",
+                action: (input) => {
+                    this.log("🔍", "Searching for ball");
+                    if (this.state.memory.lastBallTime && input.time - this.state.memory.lastBallTime > 100) {
+                        return { cmd: "turn", params: ["360"] };
+                    }
+                    return { cmd: "turn", params: ["45"] };
+                },
+                next: "offensive"
+            },
+
+            approachBall: {
+                type: "exec",
+                action: (input) => {
+                    if (!input.ball) return { cmd: "turn", params: ["45"] };
+
+                    const ball = input.ball;
+                    const goal = input.targetGoal;
+
+                    this.log("🏃", "Approaching ball", {
+                        dist: ball.distance.toFixed(2),
+                        dir: ball.direction.toFixed(2)
+                    });
+
+                    this.state.memory.lastBallPos = ball;
+                    this.state.memory.lastBallTime = input.time;
+
+                    if (goal) {
+                        this.state.memory.lastGoalVisibleTime = input.time;
+                    }
+
+                    if (Math.abs(ball.direction) > 10) {
+                        return { cmd: "turn", params: [ball.direction.toFixed(2)] };
+                    } else {
+                        const dashPower = ball.distance > 10 ? 100 :
+                                        ball.distance > 5 ? 80 : 60;
+                        return { cmd: "dash", params: [dashPower.toString()] };
+                    }
+                },
+                next: "offensive"
+            },
+
+            searchGoal: {
+                type: "exec",
+                action: (input) => {
+                    this.log("👀", "Searching for goal");
+                    if (input.ball && input.ball.distance < 1.2) {
+                        return { cmd: "turn", params: ["20"] };
+                    }
+                    return { cmd: "turn", params: ["45"] };
+                },
+                next: "offensive"
+            },
+
+            shoot: {
+                type: "exec",
+                action: (input) => {
+                    if (!input.targetGoal) {
+                        this.log("⚠️", "Want to shoot but goal not visible");
+                        return { cmd: "turn", params: ["45"] };
+                    }
+                    this.log("💥", "SHOOTING!", {
+                        dist: input.targetGoal.distance.toFixed(2),
+                        angle: input.targetGoal.direction.toFixed(2)
+                    });
+                    this.agent.dribbleState.consecutiveKicks = 0;
+                    this.state.memory.stuckCount = 0;
+                    return { cmd: "kick", params: ["100", input.targetGoal.direction.toFixed(2)] };
+                },
+                next: "afterKick"
+            },
+
+            dribbleNormal: {
+                type: "exec",
+                action: (input) => {
+                    if (!input.ball || !input.targetGoal) {
+                        return { cmd: "turn", params: ["30"] };
+                    }
+
+                    this.log("🦶", "Dribbling toward goal");
+
+                    // Просто толкаем мяч к воротам
+                    let kickPower = 15;
+                    if (input.targetGoal.distance > 40) {
+                        kickPower = 25;
+                    } else if (input.targetGoal.distance < 30) {
+                        kickPower = 12;
+                    }
+
+                    // Если угол слишком острый - корректируем
+                    if (Math.abs(input.targetGoal.direction) > 30) {
+                        const correction = input.targetGoal.direction * 0.3;
+                        return { cmd: "kick", params: [kickPower.toString(), correction.toFixed(1)] };
+                    } else {
+                        // Прямо к воротам
+                        return { cmd: "kick", params: [kickPower.toString(), "0"] };
+                    }
+                },
+                next: "afterKick"
+            },
+
+            defendGoal: {
+                type: "exec",
+                action: (input) => {
+                    this.log("🛡️", "Defending goal - active");
+
+                    if (!input.ball) {
+                        return { cmd: "turn", params: ["45"] };
+                    }
+
+                    // Если мяч очень близко - выбиваем
+                    if (input.ball.distance < 2.0) {
+                        this.log("⚽", "Clearing ball from dangerous area!");
+                        // Выбиваем в сторону от ворот
+                        return { cmd: "kick", params: ["60", "0"] };
+                    }
+
+                    // Если мяч в штрафной - бежим к нему
+                    if (input.ball.distance < 15) {
+                        if (Math.abs(input.ball.direction) > 10) {
+                            return { cmd: "turn", params: [input.ball.direction.toFixed(2)] };
+                        } else {
+                            return { cmd: "dash", params: ["80"] };
+                        }
+                    }
+
+                    // Если мяч далеко - занимаем позицию
+                    if (Math.random() < 0.3) {
+                        return { cmd: "turn", params: ["0"] };
+                    } else {
+                        return { cmd: "dash", params: ["50"] };
+                    }
+                },
+                next: "defensive"
+            },
+
+            goalieDefense: {
+                type: "exec",
+                action: (input) => {
+                    this.log("🧤", "Goalie in position");
+                    if (input.ball && input.ball.distance < 2.0) {
+                        this.log("🧤", "CATCHING ball!");
+                        return { cmd: "catch", params: [input.ball.direction.toFixed(2)] };
+                    }
+                    const goalFlag = input.flags ? input.flags.find(f => f.name === "g r" || f.name === "g l") : null;
+                    if (goalFlag) {
+                        if (Math.abs(goalFlag.direction) > 5) return { cmd: "turn", params: [goalFlag.direction.toFixed(2)] };
+                        if (goalFlag.distance > 5) return { cmd: "dash", params: ["40"] };
+                    }
+                    return { cmd: "turn", params: ["10"] };
+                },
+                next: "defensive"
+            },
+
+            afterKick: {
+                type: "exec",
+                action: (input) => {
+                    if (input.ball && input.ball.distance < 5.0) {
+                        return { cmd: "dash", params: ["50"] };
+                    }
+                    return null;
+                },
+                next: "offensive"
+            }
+        };
+
+        try {
+            this.logStream = fs.createWriteStream(`agent_${Date.now()}.log`, { flags: 'a' });
+        } catch (e) {
+            console.log("Could not create log file, logging to console only");
+        }
+
+        this.log("🚀", "DecisionTree initialized (ACTIVE DEFENSE)");
+    }
+
+    log(level, message, data = null) {
+        const timestamp = new Date().toISOString();
+        const playerInfo = this.agent.playerNumber ? `[Player ${this.agent.playerNumber}]` : '[Init]';
+        let logLine = `${timestamp} ${playerInfo} ${level}: ${message}`;
+        if (data) logLine += ` ${JSON.stringify(data)}`;
+        console.log(logLine);
+        if (this.logStream) {
+            try { this.logStream.write(logLine + '\n'); } catch (e) {}
+        }
+    }
+
+    decide(input) {
+        this.log("DEBUG", "Decision input", {
+            ball: input.ball ? `${input.ball.distance.toFixed(2)}m` : 'none',
+            goal: input.targetGoal ? `${input.targetGoal.distance.toFixed(2)}m` : 'none',
+            time: input.time
+        });
+
+        let currentNode = "root";
+        let maxIterations = 50;
+        let iterations = 0;
+
+        while (iterations < maxIterations) {
+            iterations++;
+            const node = this.tree[currentNode];
+            if (!node) {
+                this.log("ERROR", `Node not found: ${currentNode}`);
+                break;
+            }
+            if (node.type === "condition") {
+                const nextNode = node.check(input);
+                this.log("DEBUG", `Condition ${currentNode} -> ${nextNode}`);
+                currentNode = nextNode;
+            } else if (node.type === "exec") {
+                const command = node.action(input);
+                if (command) {
+                    this.log("DEBUG", `Exec ${currentNode} -> command`, command);
+                    this.state.lastCommand = command;
+                    this.state.lastCommandTime = input.time;
+                    return command;
+                }
+                currentNode = node.next;
+            }
+        }
+        this.log("WARN", "No decision made, defaulting to turn");
+        return { cmd: "turn", params: ["30"] };
+    }
+}
+
+module.exports = DecisionTree;

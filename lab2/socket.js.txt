@@ -1,0 +1,55 @@
+// socket.js - Улучшенный сокет с логированием
+const dgram = require('dgram');
+
+module.exports = function(agent, teamName, version) {
+    console.log(`🔌 Creating UDP socket for ${teamName}...`);
+
+    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+
+    socket.on('message', (msg, info) => {
+        const messageStr = msg.toString();
+        console.log(`📨 Received ${messageStr.length} bytes from ${info.address}:${info.port}`);
+
+        try {
+            agent.handleMessage(messageStr);
+        } catch (e) {
+            console.error('❌ Error handling message:', e);
+            console.error('Message:', messageStr);
+        }
+    });
+
+    socket.on('error', (err) => {
+        console.error('❌ Socket error:', err);
+    });
+
+    socket.on('listening', () => {
+        const address = socket.address();
+        console.log(`✅ Socket listening on ${address.address}:${address.port}`);
+    });
+
+    socket.sendMsg = function(msg) {
+        console.log(`📤 Sending ${msg.length} bytes: ${msg.substring(0, 100)}${msg.length > 100 ? '...' : ''}`);
+
+        socket.send(Buffer.from(msg), 6000, 'localhost', (err, bytes) => {
+            if (err) {
+                console.error('❌ Send error:', err);
+            } else {
+                console.log(`✅ Sent ${bytes} bytes`);
+            }
+        });
+    };
+
+    // Подключаемся к серверу
+    const initMsg = `(init ${teamName} (version ${version}))`;
+    console.log(`🔌 Connecting with: ${initMsg}`);
+
+    setTimeout(() => {
+        socket.sendMsg(initMsg);
+    }, 500);
+
+    agent.setSocket(socket);
+
+    console.log("✅ Socket module initialized");
+
+    return socket;
+};
