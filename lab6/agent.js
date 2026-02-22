@@ -61,6 +61,7 @@ class TeamGameAgent extends BaseAgent {
         this.runtime.searchStep = 0;
         this.runtime.goSignalTime = -1;
         this.pendingSay = null;
+        this.moveToStart();
     }
 
     onSee(world) {

@@ -52,20 +52,22 @@ class HighController {
     }
 
     makeShotCommand(input) {
-        if (input.goalOpp && typeof input.goalOpp.direction === 'number') {
-            const power = input.goalOpp.distance > 22 ? 100 : 75;
-            return { n: 'kick', v: [power, input.goalOpp.direction] };
-        }
-
-        if (typeof input.opponentGoalAngleGlobal !== 'number') {
+        const angle = input.goalOpp ? input.goalOpp.direction : input.opponentGoalAngleGlobal;
+        if (typeof angle !== 'number') {
             return null;
         }
 
-        let power = 75;
-        if (typeof input.opponentGoalDistanceGlobal === 'number') {
-            power = clamp(Math.round(40 + input.opponentGoalDistanceGlobal * 1.1), 55, 100);
+        const dist = input.goalOpp ? input.goalOpp.distance : input.opponentGoalDistanceGlobal;
+        if (typeof dist !== 'number') {
+            return null;
         }
-        return { n: 'kick', v: [power, input.opponentGoalAngleGlobal] };
+
+        if (dist > 25 && !input.features.opponentPressure) {
+            return { n: 'kick', v: [25, angle] };
+        }
+
+        const power = dist > 22 ? 100 : 80;
+        return { n: 'kick', v: [clamp(power, 30, 100), angle] };
     }
 
     choosePassTarget(input) {

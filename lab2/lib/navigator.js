@@ -22,7 +22,7 @@ class Navigator {
 
     dashTo(distance, maxPower = 100) {
         let power = 25 + distance * 14;
-        if (distance < 5) power *= 0.6;
+        if (distance < 5) power = Math.max(45, power * 0.8);
         return { n: 'dash', v: Math.round(clamp(power, 20, maxPower)) };
     }
 
@@ -33,7 +33,11 @@ class Navigator {
         if (target.distance <= reachDistance) {
             return { done: true, command: null };
         }
-        if (Math.abs(target.direction) > this.angleThreshold) {
+
+        let currentThreshold = this.angleThreshold;
+        if (target.distance < 1.5) currentThreshold = 35;
+
+        if (Math.abs(target.direction) > currentThreshold) {
             return { done: false, command: this.turnTo(target.direction) };
         }
         return { done: false, command: this.dashTo(target.distance) };

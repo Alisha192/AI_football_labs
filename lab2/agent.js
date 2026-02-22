@@ -184,10 +184,6 @@ class RouteAgent extends BaseAgent {
             return { n: 'kick', v: [25, this.unum && this.unum % 2 === 0 ? 45 : -45] };
         }
 
-        if (Math.abs(goal.direction) > 10) {
-            return { n: 'turn', v: goal.direction };
-        }
-
         return this.navigator.kickTo(goal, goal.distance > 20);
     }
 }
