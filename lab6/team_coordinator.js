@@ -8,29 +8,72 @@ class TeamCoordinator {
         this.reports = new Map();
         this.assignments = new Map();
         this.lastBall = null;
+        this.maxBallPoseAge = 3;
+        this.maxBallStaleness = 20;
     }
 
     updateReport(agentId, report) {
-        this.reports.set(agentId, report);
+        this.reports.set(agentId, { ...report, agentId });
         this.recompute();
     }
 
-    estimateBall() {
-        const points = [];
+    latestReportTime() {
+        let time = null;
         for (const report of this.reports.values()) {
-            if (report.ballGlobal) points.push(report.ballGlobal);
+            if (typeof report.time !== 'number' || !Number.isFinite(report.time)) continue;
+            if (time === null || report.time > time) time = report.time;
         }
-        if (points.length === 0) {
+        return time;
+    }
+
+    estimateBall() {
+        const candidates = [];
+        for (const report of this.reports.values()) {
+            if (!report.ballGlobal) continue;
+            if (report.poseReliable !== true) continue;
+            if (typeof report.ballDistance !== 'number' || !Number.isFinite(report.ballDistance)) continue;
+
+            const poseAge = typeof report.poseAge === 'number' && Number.isFinite(report.poseAge)
+                ? report.poseAge
+                : Number.POSITIVE_INFINITY;
+            if (poseAge > this.maxBallPoseAge) continue;
+
+            candidates.push({
+                point: report.ballGlobal,
+                ballDistance: report.ballDistance,
+                poseAge,
+                time: typeof report.time === 'number' ? report.time : -Infinity,
+                agentId: report.agentId,
+            });
+        }
+
+        if (candidates.length === 0) {
+            const now = this.latestReportTime();
+            if (
+                this.lastBall
+                && typeof this.lastBall.time === 'number'
+                && now !== null
+                && now - this.lastBall.time > this.maxBallStaleness
+            ) {
+                this.lastBall = null;
+            }
             return this.lastBall;
         }
 
-        let x = 0;
-        let y = 0;
-        for (const p of points) {
-            x += p.x;
-            y += p.y;
-        }
-        this.lastBall = { x: x / points.length, y: y / points.length };
+        candidates.sort((a, b) => {
+            if (a.ballDistance !== b.ballDistance) return a.ballDistance - b.ballDistance;
+            if (a.poseAge !== b.poseAge) return a.poseAge - b.poseAge;
+            if (a.time !== b.time) return b.time - a.time;
+            return a.agentId - b.agentId;
+        });
+
+        const best = candidates[0];
+        this.lastBall = {
+            x: best.point.x,
+            y: best.point.y,
+            time: best.time,
+            source: best.agentId,
+        };
         return this.lastBall;
     }
 
@@ -50,7 +93,7 @@ class TeamCoordinator {
                 continue;
             }
 
-            if (report.pose) {
+            if (report.pose && report.poseReliable === true) {
                 fieldPlayers.push({ id, info, report });
             }
         }

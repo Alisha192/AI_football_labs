@@ -67,12 +67,16 @@ class TeamGameAgent extends BaseAgent {
         this.filtered = this.filter.update(world.objects);
 
         const ball = this.visible('b');
-        const ballGlobal = world.pose && ball ? globalObjectPosition(world.pose, ball) : null;
+        const poseReliable = !!(world.pose && world.pose.reliable !== false);
+        const ballGlobal = poseReliable && ball ? globalObjectPosition(world.pose, ball) : null;
 
         this.coordinator.updateReport(this.agentId, {
             time: world.time,
             pose: world.pose,
+            poseReliable,
+            poseAge: world.pose ? (world.pose.lostTicks || 0) : Number.POSITIVE_INFINITY,
             ballGlobal,
+            ballDistance: ball ? ball.distance : null,
             role: this.role,
         });
 
@@ -82,7 +86,7 @@ class TeamGameAgent extends BaseAgent {
 
         if (this.debug && this.agentId === 5 && world.time % 50 === 0) {
             this.log(
-                `t=${world.time} flags=${world.flags.length} ball=${ball ? `${ball.distance.toFixed(2)}@${ball.direction.toFixed(1)}` : 'none'} pose=${world.pose ? `${world.pose.x.toFixed(1)},${world.pose.y.toFixed(1)}` : 'none'}`
+                `t=${world.time} flags=${world.flags.length} ball=${ball ? `${ball.distance.toFixed(2)}@${ball.direction.toFixed(1)}` : 'none'} pose=${world.pose ? `${world.pose.x.toFixed(1)},${world.pose.y.toFixed(1)}${world.pose.reliable === false ? '!' : ''}` : 'none'}`
             );
         }
     }
@@ -126,7 +130,7 @@ class TeamGameAgent extends BaseAgent {
     }
 
     relativeAngleToPoint(point) {
-        if (!point || !this.world.pose) return null;
+        if (!point || !this.world.pose || this.world.pose.reliable === false) return null;
         const dx = point.x - this.world.pose.x;
         const dy = point.y - this.world.pose.y;
         const global = rad2deg(Math.atan2(dy, dx));
@@ -134,7 +138,7 @@ class TeamGameAgent extends BaseAgent {
     }
 
     distanceToPoint(point) {
-        if (!point || !this.world.pose) return null;
+        if (!point || !this.world.pose || this.world.pose.reliable === false) return null;
         return Math.hypot(point.x - this.world.pose.x, point.y - this.world.pose.y);
     }
 
@@ -150,7 +154,7 @@ class TeamGameAgent extends BaseAgent {
             const msg = this.pendingSay;
             this.pendingSay = null;
             this.runtime.sayCooldown = 6;
-            return { n: 'say', v: msg };
+            this.queueSay(msg);
         }
 
         const assignment = this.coordinator.getAssignment(this.agentId);
@@ -173,7 +177,12 @@ class TeamGameAgent extends BaseAgent {
             command: null,
         };
 
-        return this.hierarchy.execute(input);
+        const command = this.hierarchy.execute(input);
+        if (command && command.n === 'say') {
+            this.queueAuxCommand(command);
+            return { n: 'turn', v: 0 };
+        }
+        return command || { n: 'turn', v: 20 };
     }
 }
 

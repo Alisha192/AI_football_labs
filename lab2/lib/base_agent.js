@@ -23,6 +23,7 @@ class BaseAgent {
         start = { x: -15, y: 0 },
         debug = false,
         view = { width: 'wide', quality: 'high' },
+        poseLossTicks = 8,
     }) {
         this.teamName = teamName;
         this.version = version;
@@ -41,6 +42,9 @@ class BaseAgent {
         this.playMode = 'before_kick_off';
         this.run = false;
         this.lastCommandTime = -1;
+        this.poseLossTicks = Math.max(1, Math.floor(poseLossTicks));
+        this.poseMissingTicks = 0;
+        this.queuedSideCommands = [];
 
         this.world = {
             time: 0,
@@ -50,8 +54,12 @@ class BaseAgent {
             goals: [],
             ball: null,
             pose: null,
+            poseReliable: false,
             hear: [],
             senseBody: null,
+            stamina: null,
+            effort: null,
+            recovery: null,
         };
 
         this._debugSeeSamples = 0;
@@ -141,6 +149,12 @@ class BaseAgent {
 
     handleSenseBody(data) {
         this.world.senseBody = data;
+        const staminaState = this.extractStamina(data);
+        if (staminaState) {
+            this.world.stamina = staminaState.stamina;
+            this.world.effort = staminaState.effort;
+            this.world.recovery = staminaState.recovery;
+        }
         this.onSenseBody(data);
     }
 
@@ -155,25 +169,55 @@ class BaseAgent {
         this.world.goals = seen.objects.filter((obj) => obj.kind === 'goal');
         this.world.ball = seen.objects.find((obj) => obj.kind === 'ball') || null;
 
-        const pose = estimatePoseFromFlags(this.world.flags, this.world.pose);
+        const previousPose = this.world.pose && this.world.pose.reliable !== false ? this.world.pose : null;
+        const pose = estimatePoseFromFlags(this.world.flags, previousPose);
         if (pose) {
-            this.world.pose = pose;
+            this.poseMissingTicks = 0;
+            this.world.pose = {
+                ...pose,
+                reliable: true,
+                lostTicks: 0,
+                lastSeenTime: seen.time,
+            };
+            this.world.poseReliable = true;
+        } else {
+            this.poseMissingTicks += 1;
+            this.world.poseReliable = false;
+
+            if (this.world.pose) {
+                this.world.pose = {
+                    ...this.world.pose,
+                    reliable: false,
+                    lostTicks: this.poseMissingTicks,
+                };
+            }
+
+            if (this.poseMissingTicks >= this.poseLossTicks) {
+                this.world.pose = null;
+            }
         }
 
         this.onSee(this.world);
-        const command = this.decide(this.world);
-        this.sendCommand(command, seen.time);
+        let command = this.decide(this.world);
+        if (command && command.n === 'say') {
+            this.queueAuxCommand(command);
+            command = null;
+        }
+
+        this.sendCommand(command, seen.time, { trackTick: true });
+        this.flushQueuedCommands(seen.time);
     }
 
-    sendCommand(command, time = null) {
+    sendCommand(command, time = null, { trackTick = true } = {}) {
         if (!command || typeof command.n !== 'string') return false;
-        if (time !== null && time === this.lastCommandTime) return false;
+        if (trackTick && time !== null && time === this.lastCommandTime) return false;
 
-        const message = this.formatCommand(command);
+        const limitedCommand = this.limitCommandByStamina(command);
+        const message = this.formatCommand(limitedCommand);
         if (!message) return false;
 
         this.socket.sendRaw(message);
-        if (time !== null) {
+        if (trackTick && time !== null) {
             this.lastCommandTime = time;
         }
 
@@ -181,6 +225,48 @@ class BaseAgent {
             this.log(`cmd ${message}`);
         }
         return true;
+    }
+
+    extractStamina(senseBody) {
+        if (!senseBody || !Array.isArray(senseBody.p)) return null;
+        for (const item of senseBody.p) {
+            if (!item || typeof item !== 'object') continue;
+            if (item.cmd !== 'stamina' || !Array.isArray(item.p)) continue;
+
+            const stamina = typeof item.p[0] === 'number' ? item.p[0] : null;
+            const effort = typeof item.p[1] === 'number' ? item.p[1] : null;
+            const recovery = typeof item.p[2] === 'number' ? item.p[2] : null;
+            return { stamina, effort, recovery };
+        }
+        return null;
+    }
+
+    limitCommandByStamina(command) {
+        if (!command || command.n !== 'dash') return command;
+        if (typeof this.world.stamina !== 'number' || this.world.stamina >= 2500) {
+            return command;
+        }
+
+        const limitDashPower = (power) => {
+            if (typeof power !== 'number' || !Number.isFinite(power)) return power;
+            if (power > 40) return 40;
+            if (power < -40) return -40;
+            return power;
+        };
+
+        if (typeof command.v === 'number') {
+            const limited = limitDashPower(command.v);
+            if (limited === command.v) return command;
+            return { ...command, v: limited };
+        }
+
+        if (Array.isArray(command.v) && command.v.length > 0) {
+            const limited = limitDashPower(command.v[0]);
+            if (limited === command.v[0]) return command;
+            return { ...command, v: [limited, ...command.v.slice(1)] };
+        }
+
+        return command;
     }
 
     formatCommand(command) {
@@ -194,9 +280,40 @@ class BaseAgent {
             return `(${n} ${v.map(formatNumber).join(' ')})`;
         }
         if (typeof v === 'string') {
+            if (n === 'say') {
+                const quoted = v.length >= 2 && v[0] === '"' && v[v.length - 1] === '"';
+                const payload = quoted
+                    ? v
+                    : `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+                return `(${n} ${payload})`;
+            }
             return `(${n} ${v})`;
         }
         return `(${n} ${formatNumber(v)})`;
+    }
+
+    queueAuxCommand(command) {
+        if (!command || typeof command.n !== 'string') return false;
+        this.queuedSideCommands.push(command);
+        if (this.queuedSideCommands.length > 4) {
+            this.queuedSideCommands.shift();
+        }
+        return true;
+    }
+
+    queueSay(message) {
+        if (typeof message !== 'string') return false;
+        const text = message.trim();
+        if (!text) return false;
+        return this.queueAuxCommand({ n: 'say', v: text });
+    }
+
+    flushQueuedCommands(time) {
+        if (!this.queuedSideCommands.length) return;
+        const queue = this.queuedSideCommands.splice(0, this.queuedSideCommands.length);
+        for (const command of queue) {
+            this.sendCommand(command, time, { trackTick: false });
+        }
     }
 
     latestHear(predicate) {

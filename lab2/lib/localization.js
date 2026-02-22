@@ -6,7 +6,6 @@ const {
     rad2deg,
     normalizeAngle,
     meanAngles,
-    lerpAngle,
     distance,
 } = require('./math');
 
@@ -180,7 +179,7 @@ function estimatePoseFromFlags(observations, previousPose = null) {
             x: previousPose.x * (1 - alpha) + candidate.x * alpha,
             y: previousPose.y * (1 - alpha) + candidate.y * alpha,
         };
-        bodyDir = lerpAngle(previousPose.bodyDir, bodyDir, alpha);
+        bodyDir = estimateBodyDir(candidate, refs);
         error = candidateError(candidate, refs);
     }
 

@@ -16,8 +16,12 @@ class LowController {
             input.command = { n: 'catch', v: ball.direction };
         }
 
+        if (input.command) {
+            return input.command;
+        }
+
         const command = next(input);
-        return command || input.command;
+        return input.command || command;
     }
 }
 

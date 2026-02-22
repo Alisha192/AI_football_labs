@@ -30,12 +30,19 @@ class MiddleController {
         }
 
         const command = next(input);
-        return command || input.command;
+        return input.command || command;
+    }
+
+    hasReliablePose(input) {
+        return !!(input.world.pose && input.world.pose.reliable !== false);
     }
 
     attackBall(input, nav) {
         if (!input.ball) {
             const target = input.assignment.target || { x: 0, y: 0 };
+            if (!this.hasReliablePose(input)) {
+                return nav.search(input.agent.runtime.searchStep++);
+            }
             const navPoint = nav.navigateToPoint(input.world.pose, target, 2.0);
             if (navPoint.command) return navPoint.command;
             return nav.search(input.agent.runtime.searchStep++);
@@ -55,6 +62,10 @@ class MiddleController {
             const chase = nav.approachBall(input.ball);
             if (chase.command) return chase.command;
             return { n: 'turn', v: 0 };
+        }
+
+        if (!this.hasReliablePose(input)) {
+            return nav.search(input.agent.runtime.searchStep++);
         }
 
         const target = input.assignment.target || { x: 0, y: 0 };
@@ -85,6 +96,9 @@ class MiddleController {
 
     moveToPoint(input, point, reach) {
         const nav = input.agent.navigator;
+        if (!this.hasReliablePose(input)) {
+            return nav.search(input.agent.runtime.searchStep++);
+        }
         const result = nav.navigateToPoint(input.world.pose, point, reach);
         if (result.command) {
             input.agent.runtime.searchStep = 0;
