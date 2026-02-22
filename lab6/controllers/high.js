@@ -1,6 +1,6 @@
 'use strict';
 
-const { clamp } = require('../../lab2/lib/math');
+const { clamp, normalizeAngle } = require('../../lab2/lib/math');
 
 class HighController {
     execute(input, next) {
@@ -71,29 +71,54 @@ class HighController {
     }
 
     choosePassTarget(input) {
-        let preferred = null;
-        let fallback = null;
+        const mates = [];
+        const opponents = [];
 
         for (const obj of input.filtered) {
             if (obj.kind !== 'player') continue;
             if (obj.distance === null || obj.direction === null) continue;
-            if (obj.team && obj.team !== input.agent.teamName) continue;
-            if (Math.abs(obj.direction) > 75) continue;
+            if (Math.abs(obj.direction) > 80) continue;
 
-            if (!fallback || obj.distance < fallback.distance) {
-                fallback = obj;
-            }
-
-            if (
-                input.assignment.receiverId
-                && obj.unum === input.assignment.receiverId
-                && (!preferred || obj.distance < preferred.distance)
-            ) {
-                preferred = obj;
+            const isOpponent = !!obj.team && obj.team !== input.agent.teamName;
+            if (isOpponent) {
+                opponents.push(obj);
+            } else {
+                mates.push(obj);
             }
         }
 
-        return preferred || fallback;
+        function isLaneBlocked(target) {
+            // Конус передачи: чем дальше адресат, тем уже допуск по углу.
+            // Для близкого паса позволяем чуть шире, для длинного — строже.
+            const cone = clamp(14 - target.distance * 0.25, 5, 14);
+            for (const opp of opponents) {
+                if (opp.distance >= target.distance - 0.3) continue;
+                const rel = Math.abs(normalizeAngle(opp.direction - target.direction));
+                if (rel <= cone) return true;
+            }
+            return false;
+        }
+
+        const safeMates = mates.filter((mate) => !isLaneBlocked(mate));
+        if (safeMates.length === 0) {
+            return null;
+        }
+
+        let preferred = null;
+        if (input.assignment.receiverId) {
+            preferred = safeMates.find((mate) => mate.unum === input.assignment.receiverId) || null;
+        }
+        if (preferred) return preferred;
+
+        // Если координатор не назначил явного получателя, выбираем безопасный
+        // вариант с хорошим соотношением "близко + прямо по курсу".
+        safeMates.sort((a, b) => {
+            const sa = a.distance + Math.abs(a.direction) * 0.06;
+            const sb = b.distance + Math.abs(b.direction) * 0.06;
+            if (sa !== sb) return sa - sb;
+            return a.distance - b.distance;
+        });
+        return safeMates[0] || null;
     }
 }
 

@@ -20,13 +20,54 @@ class Navigator {
         return { n: 'turn', v: clamp(angle, -90, 90) };
     }
 
-    dashTo(distance, maxPower = 100) {
+    // Базовый профиль ускорения:
+    // чем дальше цель, тем выше мощность; на малой дистанции оставляем
+    // достаточный минимум, чтобы не "залипать" на подбеге.
+    // obstacleFactor в [0.55..1.0] снижает рывок, если впереди плотное препятствие.
+    dashTo(distance, maxPower = 100, obstacleFactor = 1) {
         let power = 25 + distance * 14;
         if (distance < 5) power = Math.max(45, power * 0.8);
+        power *= clamp(obstacleFactor, 0.55, 1.0);
         return { n: 'dash', v: Math.round(clamp(power, 20, maxPower)) };
     }
 
-    navigateToVisible(target, reachDistance = this.reachDistance) {
+    // Простейшая модель "отталкивания":
+    // если игрок-препятствие находится почти на линии движения (малый угол к targetAngle)
+    // и близко (до 2 м), поворачиваем в сторону, противоположную obstacle.
+    avoidByObstacles(targetAngle, obstacles = []) {
+        let blocker = null;
+        for (const obj of obstacles) {
+            if (!obj || obj.kind !== 'player') continue;
+            if (typeof obj.distance !== 'number' || typeof obj.direction !== 'number') continue;
+            if (obj.distance > 2.0) continue;
+
+            const rel = normalizeAngle(obj.direction - targetAngle);
+            if (Math.abs(rel) > 18) continue;
+
+            if (!blocker || obj.distance < blocker.distance) {
+                blocker = { distance: obj.distance, rel };
+            }
+        }
+
+        if (!blocker) {
+            return {
+                angle: targetAngle,
+                obstacleFactor: 1,
+                avoided: false,
+            };
+        }
+
+        const sideBias = blocker.rel >= 0 ? -35 : 35;
+        const angle = normalizeAngle(targetAngle + sideBias);
+        const obstacleFactor = blocker.distance < 1.2 ? 0.65 : 0.8;
+        return { angle, obstacleFactor, avoided: true };
+    }
+
+    // Навигация на видимый объект с обходом препятствий:
+    // 1) берем угол на цель
+    // 2) корректируем его, если впереди игрок
+    // 3) сначала доворачиваемся, затем даем dash.
+    navigateToVisible(target, reachDistance = this.reachDistance, obstacles = []) {
         if (!target || typeof target.distance !== 'number' || typeof target.direction !== 'number') {
             return { done: false, command: null };
         }
@@ -34,16 +75,20 @@ class Navigator {
             return { done: true, command: null };
         }
 
+        const avoided = this.avoidByObstacles(target.direction, obstacles);
         let currentThreshold = this.angleThreshold;
         if (target.distance < 1.5) currentThreshold = 35;
+        if (avoided.avoided) currentThreshold = Math.max(currentThreshold, 12);
 
-        if (Math.abs(target.direction) > currentThreshold) {
-            return { done: false, command: this.turnTo(target.direction) };
+        if (Math.abs(avoided.angle) > currentThreshold) {
+            return { done: false, command: this.turnTo(avoided.angle) };
         }
-        return { done: false, command: this.dashTo(target.distance) };
+        return { done: false, command: this.dashTo(target.distance, 100, avoided.obstacleFactor) };
     }
 
-    navigateToPoint(pose, point, reachDistance = this.reachDistance) {
+    // Навигация в глобальную точку с тем же обходом препятствий:
+    // targetHeading -> относительный угол delta -> корректировка delta.
+    navigateToPoint(pose, point, reachDistance = this.reachDistance, obstacles = []) {
         if (!pose || !point) {
             return { done: false, command: null };
         }
@@ -57,15 +102,16 @@ class Navigator {
 
         const targetHeading = rad2deg(Math.atan2(dy, dx));
         const delta = normalizeAngle(targetHeading - pose.bodyDir);
-        if (Math.abs(delta) > this.angleThreshold) {
-            return { done: false, command: this.turnTo(delta) };
+        const avoided = this.avoidByObstacles(delta, obstacles);
+        if (Math.abs(avoided.angle) > this.angleThreshold) {
+            return { done: false, command: this.turnTo(avoided.angle) };
         }
 
-        return { done: false, command: this.dashTo(dist) };
+        return { done: false, command: this.dashTo(dist, 100, avoided.obstacleFactor) };
     }
 
-    approachBall(ball) {
-        return this.navigateToVisible(ball, this.ballKickDistance);
+    approachBall(ball, obstacles = []) {
+        return this.navigateToVisible(ball, this.ballKickDistance, obstacles);
     }
 
     kickTo(goal, strong = false) {

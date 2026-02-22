@@ -30,11 +30,21 @@ class MiddleController {
         }
 
         const command = next(input);
-        return input.command || command;
+        return command || input.command;
     }
 
     hasReliablePose(input) {
         return !!(input.world.pose && input.world.pose.reliable !== false);
+    }
+
+    obstacles(input) {
+        if (!input || !Array.isArray(input.filtered)) return [];
+        return input.filtered.filter((obj) => (
+            obj
+            && obj.kind === 'player'
+            && typeof obj.distance === 'number'
+            && typeof obj.direction === 'number'
+        ));
     }
 
     attackBall(input, nav) {
@@ -43,12 +53,12 @@ class MiddleController {
             if (!this.hasReliablePose(input)) {
                 return nav.search(input.agent.runtime.searchStep++);
             }
-            const navPoint = nav.navigateToPoint(input.world.pose, target, 2.0);
+            const navPoint = nav.navigateToPoint(input.world.pose, target, 2.0, this.obstacles(input));
             if (navPoint.command) return navPoint.command;
             return nav.search(input.agent.runtime.searchStep++);
         }
 
-        const approach = nav.approachBall(input.ball);
+        const approach = nav.approachBall(input.ball, this.obstacles(input));
         if (approach.done) {
             return { n: 'turn', v: 0 };
         }
@@ -59,7 +69,7 @@ class MiddleController {
 
     seekBall(input, nav) {
         if (input.ball) {
-            const chase = nav.approachBall(input.ball);
+            const chase = nav.approachBall(input.ball, this.obstacles(input));
             if (chase.command) return chase.command;
             return { n: 'turn', v: 0 };
         }
@@ -69,7 +79,7 @@ class MiddleController {
         }
 
         const target = input.assignment.target || { x: 0, y: 0 };
-        const navPoint = nav.navigateToPoint(input.world.pose, target, 2.2);
+        const navPoint = nav.navigateToPoint(input.world.pose, target, 2.2, this.obstacles(input));
         if (navPoint.command) {
             input.agent.runtime.searchStep = 0;
             return navPoint.command;
@@ -82,14 +92,44 @@ class MiddleController {
     }
 
     guardGoal(input, nav) {
+        if (!this.hasReliablePose(input)) {
+            return nav.search(input.agent.runtime.searchStep++);
+        }
+
+        const anchor = input.assignment && input.assignment.target
+            ? input.assignment.target
+            : { x: input.world.pose.x, y: input.world.pose.y };
+        const goalX = anchor.x;
+        const goalY = anchor.y;
+
+        let shiftY = 0;
+        if (input.ball && typeof input.ball.direction === 'number') {
+            // Чем сильнее боковой угол на мяч, тем сильнее смещение по линии ворот.
+            // Это приближенно удерживает вратаря на биссектрисе между мячом и центром ворот.
+            shiftY = Math.max(-6.5, Math.min(6.5, (input.ball.direction / 45) * 5.5));
+        }
+
+        const goalieTarget = {
+            x: goalX,
+            y: goalY + shiftY,
+        };
+        const approach = nav.navigateToPoint(input.world.pose, goalieTarget, 1.2, this.obstacles(input));
+        if (approach.command) {
+            return approach.command;
+        }
+
+        if (input.ball && typeof input.ball.direction === 'number') {
+            if (Math.abs(input.ball.direction) > 10) {
+                return { n: 'turn', v: input.ball.direction };
+            }
+            return { n: 'dash', v: 35 };
+        }
+
         if (!input.ownGoal) {
             return nav.search(input.agent.runtime.searchStep++);
         }
         if (Math.abs(input.ownGoal.direction) > 8) {
             return { n: 'turn', v: input.ownGoal.direction };
-        }
-        if (input.ownGoal.distance > 1.8) {
-            return { n: 'dash', v: 55 };
         }
         return { n: 'turn', v: 20 };
     }
@@ -99,7 +139,7 @@ class MiddleController {
         if (!this.hasReliablePose(input)) {
             return nav.search(input.agent.runtime.searchStep++);
         }
-        const result = nav.navigateToPoint(input.world.pose, point, reach);
+        const result = nav.navigateToPoint(input.world.pose, point, reach, this.obstacles(input));
         if (result.command) {
             input.agent.runtime.searchStep = 0;
             return result.command;

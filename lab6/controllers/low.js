@@ -12,16 +12,19 @@ class LowController {
                 && input.nearestOpponent.distance < 2.5,
         };
 
+        // 1) Абсолютный приоритет локального рефлекса вратаря.
+        // Если мяч близко и в зоне захвата, сразу выполняем catch,
+        // не отдавая управление выше.
         if (input.role === 'goalie' && input.features.ballClose && ball && Math.abs(ball.direction) < 30) {
-            input.command = { n: 'catch', v: ball.direction };
+            return { n: 'catch', v: ball.direction };
         }
 
-        if (input.command) {
-            return input.command;
-        }
-
+        // 2) Во всех остальных случаях решение принимают уровни выше (Middle -> High).
         const command = next(input);
-        return input.command || command;
+
+        // 3) Никаких fallback на input.command на уровне Low:
+        // Low не должен затирать стратегический kick от High.
+        return command;
     }
 }
 

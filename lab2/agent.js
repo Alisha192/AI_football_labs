@@ -181,7 +181,7 @@ class RouteAgent extends BaseAgent {
         const goal = this.visibleByName(goalName);
 
         if (!goal) {
-            return { n: 'kick', v: [25, this.unum && this.unum % 2 === 0 ? 45 : -45] };
+            return { n: 'turn', v: 45 };
         }
 
         return this.navigator.kickTo(goal, goal.distance > 20);

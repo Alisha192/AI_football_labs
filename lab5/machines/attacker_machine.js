@@ -43,14 +43,15 @@ function createAttackerMachine(agent) {
             align_shot: {
                 action(ctx) {
                     if (!ctx.ball || ctx.ball.distance > 1.0) {
-                        return { n: 'dash', v: 40 };
+                        const approach = nav.approachBall(ctx.ball);
+                        return approach.command || { n: 'turn', v: 0 };
                     }
                     if (ctx.nearestOpponent && ctx.nearestOpponent.distance < 2.5) {
                         const avoid = ctx.nearestOpponent.direction >= 0 ? -50 : 50;
                         return { n: 'kick', v: [35, avoid] };
                     }
                     if (!ctx.goalOpp) {
-                        return { n: 'kick', v: [30, 35] };
+                        return { n: 'turn', v: 45 };
                     }
                     return { n: 'kick', v: [100, ctx.goalOpp.direction] };
                 },
@@ -83,7 +84,7 @@ function createAttackerMachine(agent) {
                 },
                 transitions: [
                     {
-                        to: 'recover',
+                        to: 'run_to_ball',
                         guard: () => true,
                         reset: ['t'],
                     },

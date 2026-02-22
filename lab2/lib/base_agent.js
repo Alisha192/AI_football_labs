@@ -138,7 +138,7 @@ class BaseAgent {
 
         if (hear.sender === 'referee') {
             this.playMode = hear.message;
-            this.run = hear.message === 'play_on';
+            this.run = ['play_on', 'kick_off_l', 'kick_off_r'].includes(hear.message);
             if (hear.message && hear.message.startsWith('goal_')) {
                 this.onGoal(hear.message);
             }
