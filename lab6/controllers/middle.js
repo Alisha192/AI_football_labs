@@ -47,6 +47,18 @@ class MiddleController {
         ));
     }
 
+    predictBall(ball) {
+        if (!ball) return null;
+        const predicted = { ...ball };
+        if (typeof ball.dirChange === 'number') {
+            predicted.direction = ball.direction + ball.dirChange * 2.0;
+        }
+        if (typeof ball.distChange === 'number') {
+            predicted.distance = Math.max(0.1, ball.distance + ball.distChange * 2.0);
+        }
+        return predicted;
+    }
+
     attackBall(input, nav) {
         if (!input.ball) {
             const target = input.assignment.target || { x: 0, y: 0 };
@@ -58,9 +70,24 @@ class MiddleController {
             return nav.search(input.agent.runtime.searchStep++);
         }
 
-        const approach = nav.approachBall(input.ball, this.obstacles(input));
+        const obstacles = this.obstacles(input);
+        const predictedBall = this.predictBall(input.ball);
+        const approach = nav.approachBall(predictedBall || input.ball, obstacles);
         if (approach.done) {
             return { n: 'turn', v: 0 };
+        }
+
+        // Агрессивный режим перехвата:
+        // если мяч далеко, не экономим — ускоряемся максимумом.
+        if (input.ball.distance > 3) {
+            if (
+                predictedBall
+                && typeof predictedBall.direction === 'number'
+                && Math.abs(predictedBall.direction) > 16
+            ) {
+                return { n: 'turn', v: predictedBall.direction };
+            }
+            return { n: 'dash', v: 100 };
         }
 
         input.agent.runtime.searchStep = 0;

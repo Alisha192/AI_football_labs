@@ -47,6 +47,11 @@ class HighController {
             return { n: 'kick', v: [35, teammate.direction] };
         }
 
+        const dribble = this.makeDribbleCommand(input);
+        if (dribble) {
+            return dribble;
+        }
+
         const sideKick = input.agent.agentId % 2 === 0 ? 35 : -35;
         return { n: 'kick', v: [25, sideKick] };
     }
@@ -66,8 +71,58 @@ class HighController {
             return { n: 'kick', v: [25, angle] };
         }
 
-        const power = dist > 22 ? 100 : 80;
-        return { n: 'kick', v: [clamp(power, 30, 100), angle] };
+        // Ближняя дистанция: стреляем по углам, а не в центр.
+        // Оцениваем "забитость" двух направлений (+10/-10) по ближайшим соперникам.
+        const leftAngle = normalizeAngle(angle - 10);
+        const rightAngle = normalizeAngle(angle + 10);
+        let leftCost = 0;
+        let rightCost = 0;
+
+        for (const obj of input.filtered) {
+            if (obj.kind !== 'player') continue;
+            if (!obj.team || obj.team === input.agent.teamName) continue;
+            if (typeof obj.distance !== 'number' || typeof obj.direction !== 'number') continue;
+
+            // Вес препятствия: ближний соперник и малый угловой разрыв — опаснее.
+            const toLeft = Math.abs(normalizeAngle(obj.direction - leftAngle));
+            const toRight = Math.abs(normalizeAngle(obj.direction - rightAngle));
+            const weight = clamp((28 - obj.distance) / 28, 0, 1);
+
+            if (toLeft < 22) leftCost += weight * (1 - toLeft / 22);
+            if (toRight < 22) rightCost += weight * (1 - toRight / 22);
+        }
+
+        let shotAngle = angle;
+        if (dist < 25) {
+            if (leftCost < rightCost) shotAngle = leftAngle;
+            else if (rightCost < leftCost) shotAngle = rightAngle;
+            else shotAngle = angle >= 0 ? leftAngle : rightAngle;
+        }
+
+        const power = dist < 25 ? 100 : (dist > 22 ? 100 : 80);
+        return { n: 'kick', v: [clamp(power, 30, 100), shotAngle] };
+    }
+
+    makeDribbleCommand(input) {
+        const ball = input.ball;
+        if (!ball || typeof ball.direction !== 'number') return null;
+
+        let blockers = 0;
+        for (const obj of input.filtered) {
+            if (obj.kind !== 'player') continue;
+            if (!obj.team || obj.team === input.agent.teamName) continue;
+            if (typeof obj.distance !== 'number' || typeof obj.direction !== 'number') continue;
+            if (obj.distance > 7.0) continue;
+
+            const rel = Math.abs(normalizeAngle(obj.direction));
+            if (rel <= 22) blockers += 1;
+        }
+
+        // Если впереди свободный коридор, прокидываем мяч себе на ход.
+        if (blockers === 0) {
+            return { n: 'kick', v: [18, 0] };
+        }
+        return null;
     }
 
     choosePassTarget(input) {

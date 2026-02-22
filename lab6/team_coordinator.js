@@ -114,7 +114,7 @@ class TeamCoordinator {
         }
 
         for (const player of fieldPlayers) {
-            const assignment = this.assignmentFor(player, ball, attacker, support);
+            const assignment = this.assignmentFor(player, ball, attacker, support, fieldPlayers);
             this.assignments.set(player.id, assignment);
         }
 
@@ -127,7 +127,7 @@ class TeamCoordinator {
         }
     }
 
-    assignmentFor(player, ball, attacker, support) {
+    assignmentFor(player, ball, attacker, support, fieldPlayers = []) {
         const info = player.info;
         const side = info.side || 'l';
 
@@ -150,7 +150,7 @@ class TeamCoordinator {
         }
 
         if (support && support.id === player.id) {
-            const target = this.supportTarget(ball, side);
+            const target = this.supportTarget(ball, side, fieldPlayers, attacker);
             return {
                 task: 'support_attack',
                 target,
@@ -175,12 +175,44 @@ class TeamCoordinator {
         };
     }
 
-    supportTarget(ball, side) {
-        const offsetX = side === 'l' ? -8 : 8;
-        return {
-            x: clamp(ball.x + offsetX, -45, 45),
-            y: clamp(ball.y + 6, -30, 30),
+    supportTarget(ball, side, fieldPlayers = [], attacker = null) {
+        const attackDir = side === 'l' ? 1 : -1;
+
+        // Игрок поддержки должен быть немного позади атаки,
+        // чтобы сохранить опцию паса назад и подбора мяча.
+        const targetX = clamp(ball.x - attackDir * 6, -45, 45);
+
+        const optionTop = clamp(ball.y + 10, -30, 30);
+        const optionBottom = clamp(ball.y - 10, -30, 30);
+
+        const laneCost = (candidateY) => {
+            let cost = 0;
+            for (const fp of fieldPlayers) {
+                if (!fp || !fp.report || !fp.report.pose) continue;
+                const p = fp.report.pose;
+
+                // Штраф за занятый коридор рядом с целевой точкой поддержки.
+                const dx = Math.abs(p.x - targetX);
+                const dy = Math.abs(p.y - candidateY);
+                if (dx < 12 && dy < 9) {
+                    cost += (12 - dx) * 0.35 + (9 - dy) * 0.65;
+                }
+            }
+
+            if (attacker && attacker.report && attacker.report.pose) {
+                const ay = attacker.report.pose.y;
+                // Дополнительный штраф, если поддержка слишком близко к оси атакующего.
+                cost += Math.max(0, 8 - Math.abs(candidateY - ay)) * 0.8;
+            }
+
+            return cost;
         };
+
+        const topCost = laneCost(optionTop);
+        const bottomCost = laneCost(optionBottom);
+        const targetY = topCost <= bottomCost ? optionTop : optionBottom;
+
+        return { x: targetX, y: targetY };
     }
 
     getAssignment(agentId) {
