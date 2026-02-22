@@ -47,6 +47,7 @@ class HighController {
             return { n: 'kick', v: [35, teammate.direction] };
         }
 
+        // [NEW] Базовый дриблинг: при свободном коридоре прокидываем мяч себе на ход.
         const dribble = this.makeDribbleCommand(input);
         if (dribble) {
             return dribble;
@@ -71,7 +72,7 @@ class HighController {
             return { n: 'kick', v: [25, angle] };
         }
 
-        // Ближняя дистанция: стреляем по углам, а не в центр.
+        // [NEW] Ближняя дистанция: стреляем по углам, а не в центр.
         // Оцениваем "забитость" двух направлений (+10/-10) по ближайшим соперникам.
         const leftAngle = normalizeAngle(angle - 10);
         const rightAngle = normalizeAngle(angle + 10);
@@ -118,7 +119,7 @@ class HighController {
             if (rel <= 22) blockers += 1;
         }
 
-        // Если впереди свободный коридор, прокидываем мяч себе на ход.
+        // [NEW] Если впереди свободный коридор, прокидываем мяч себе на ход.
         if (blockers === 0) {
             return { n: 'kick', v: [18, 0] };
         }

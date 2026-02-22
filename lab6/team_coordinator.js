@@ -102,10 +102,13 @@ class TeamCoordinator {
         let support = null;
 
         if (ball && fieldPlayers.length > 0) {
+            // [NEW] Time-to-Intercept эвристика:
+            // cost = расстояние + штраф за разворот к мячу.
+            // Это лучше, чем чистая дистанция, потому что учитывает инерцию направления игрока.
             const sorted = [...fieldPlayers].sort((a, b) => {
-                const da = Math.hypot(a.report.pose.x - ball.x, a.report.pose.y - ball.y);
-                const db = Math.hypot(b.report.pose.x - ball.x, b.report.pose.y - ball.y);
-                if (da !== db) return da - db;
+                const ca = this.interceptCost(a.report.pose, ball);
+                const cb = this.interceptCost(b.report.pose, ball);
+                if (ca !== cb) return ca - cb;
                 return a.id - b.id;
             });
 
@@ -125,6 +128,24 @@ class TeamCoordinator {
                 target: info.home,
             });
         }
+    }
+
+    // [NEW] Стоимость перехвата с учетом поворота корпуса.
+    interceptCost(pose, ball) {
+        const dx = ball.x - pose.x;
+        const dy = ball.y - pose.y;
+        const distance = Math.hypot(dx, dy);
+        const toBall = Math.atan2(dy, dx) * 180 / Math.PI;
+        const angleDiff = this.angleDelta(toBall, pose.bodyDir);
+        return distance + (Math.abs(angleDiff) / 180) * 5.0;
+    }
+
+    // [NEW] Нормализованная разница углов в диапазоне [-180, 180].
+    angleDelta(target, current) {
+        let diff = target - current;
+        while (diff > 180) diff -= 360;
+        while (diff < -180) diff += 360;
+        return diff;
     }
 
     assignmentFor(player, ball, attacker, support, fieldPlayers = []) {
