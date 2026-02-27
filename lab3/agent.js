@@ -1,170 +1,244 @@
-'use strict';
+/**
+ * @module lab3/agent.js
+ * Реализация поведения игрового агента: обработка перцептов, обновление внутреннего состояния и выбор действий.
+ */
 
-const BaseAgent = require('../lab2/lib/base_agent');
-const Navigator = require('../lab2/lib/navigator');
-const ObjectFilter = require('../lab2/lib/object_filter');
-const { globalObjectPosition } = require('../lab2/lib/localization');
+const Msg = require('./msg');
+const readline = require('readline');
+const utils = require("./utils");
 
-class MultiPlayerAgent extends BaseAgent {
-    constructor(options) {
-        super(options);
-        this.agentId = options.agentId;
-        this.coordinator = options.coordinator;
-        this.layout = options.layout;
+// имя первого игрока: p"A"1
 
-        this.navigator = new Navigator();
-        this.filter = new ObjectFilter();
-
-        this.filteredObjects = [];
-        this.fsm = {
-            state: 'idle',
-            searchStep: 0,
-        };
+class Agent {
+    constructor(teamName) {
+        this.position = 'l'; // По умолчанию - левая половина поля
+        this.run = false; // Игра начата
+        this.act = null; // Действия
+        this.rotationSpeed = null; // скорость вращения
+        this.x_boundary = 57.5;
+        this.y_boundary = 39;
+        this.teamName = teamName;
+        this.DirectionOfSpeed = null;
+        //this.controller = controller;
+        this.turnSpeed = 10; // скорость вращения
+        this.flag_distance_epsilon = 1; // значение близости к флагу
+        this.flag_direction_epsilon = 10; // значение близости по углу
+        this.max_speed = 100; // максимальная скорость
+        this.ball_direction_epsilon = 0.5;
+        this.leading = false;
+        this.goalie = false; // является ли игрок вратарем
+        this.prevCatch = 0;
     }
 
-    onInit() {
-        if (this.layout[this.agentId]) {
-            this.layout[this.agentId].side = this.side;
+    get_unit_vector(Direction){
+        if (!this.DirectionOfSpeed){
+            return;
         }
-        this.log(`initialized role=${this.role}`);
+        if (this.teamName === 'A'){
+            var angle = this.DirectionOfSpeed -  Direction;
+            angle = angle * Math.PI / 180;
+
+            return [Math.cos(angle), -Math.sin(angle)];
+        }
     }
 
-    onGoal() {
-        this.fsm.state = 'idle';
-        this.fsm.searchStep = 0;
+    msgGot(msg) {
+        // Получение сообщения
+        let data = msg.toString(); // Приведение
+        this.processMsg(data); // Разбор сообщения
+        this.sendCmd(); // Отправка команды
     }
 
-    onSee(world) {
-        this.filteredObjects = this.filter.update(world.objects);
-
-        const ball = this.visible('b');
-        const ballGlobal = world.pose && ball ? globalObjectPosition(world.pose, ball) : null;
-
-        this.coordinator.updateReport(this.agentId, {
-            time: world.time,
-            pose: world.pose,
-            ballGlobal,
-            ballDistance: ball ? ball.distance : null,
-            role: this.role,
-        });
+    setSocket(socket) {
+        // Настройка сокета
+        this.socket = socket;
     }
 
-    visible(name) {
-        let nearest = null;
-        for (const obj of this.filteredObjects) {
-            if (obj.name !== name) continue;
-            if (obj.distance === null) continue;
-            if (!nearest || obj.distance < nearest.distance) {
-                nearest = obj;
+    async socketSend(cmd, value, goalie) {
+        // Отправка команды
+        await this.socket.sendMsg(`(${cmd} ${value})`);
+    }
+
+    processMsg(msg) {
+        // Обработка сообщения
+        let data = Msg.parseMsg(msg); // Разбор сообщения
+        if (!data) throw new Error('Parse error\n' + msg);
+        if (data.cmd === 'init') this.initAgent(data.p); // Инициализация
+        this.analyzeEnv(data.msg, data.cmd, data.p); // Обработка
+    }
+
+    initAgent(p) {
+        if (p[0] === 'r') this.position = 'r'; // Правая половина поля
+        if (p[1]) this.id = p[1]; // id игрока
+    }
+
+
+    search_obj(obj_name){
+        // Выдает действие для поиска объекта
+        return {n: 'turn', v: this.turnSpeed};
+    }
+
+    get_flag_actions(see_data, flag_name){
+        let obj = utils.see_object(flag_name, see_data);
+        if (!obj){
+            return this.search_obj(flag_name);
+        }
+
+        let direction = obj[1];
+        let distance = obj[0];
+
+        if (distance < this.flag_distance_epsilon){
+            return "complete";
+        }
+
+        if (Math.abs(direction) >= this.flag_direction_epsilon){
+            return {n: "turn", v: direction};
+        }
+
+        let dash = 0;
+        if (distance > 5){
+            dash = this.max_speed;
+        } else {
+            dash = 20;
+        }
+        
+        
+        return {n: 'dash', v: dash};
+
+    }
+
+    get_kick_actions(see_data, flag_name){
+        let ball_name = 'b';
+        let ball = utils.see_object(ball_name, see_data);
+        if (!ball){
+            return this.search_obj(ball_name);
+        }
+
+        let direction = ball[1];
+        let distance = ball[0];
+
+        if (distance < this.ball_direction_epsilon){
+            let flag = utils.see_object(flag_name, see_data);
+            if (!flag){
+                return {n: 'kick', v: 10, d: 45}
+            }
+            return {n: "kick", v: 100, d: flag[1]}
+        }
+
+        if (Math.abs(direction) >= this.flag_direction_epsilon){
+            return {n: "turn", v: direction};
+        }
+
+        let dash = 0;
+        if (distance > 5){
+            dash = this.max_speed;
+        } else {
+            dash = 20;
+        }
+        
+        return {n: 'dash', v: dash};
+
+    }
+
+    analyzeEnv(msg, cmd, p) {
+        //console.log("msg", msg);
+        if (cmd === "hear"){
+            if (p[2] === "play_on"){
+                this.run = true;
             }
         }
-        return nearest;
+
+        if (!this.run){
+            return;
+        }
+
+        //console.log(this.manager);
+        //console.log(this.dt);
+
+        if (cmd === "sense_body" && this.goalie){
+            let catchCnt = utils.find_parameter("catch", p)[0];
+            console.log("catches:", catchCnt);
+            if (catchCnt > this.prevCatch){
+                this.dt.state.catch = 1;
+            }
+            this.prevCatch = catchCnt;
+        }
+
+        if (cmd === "see"){
+            this.act = this.manager.getAction(this.dt, p);
+        }
     }
+        
 
-    decide(world) {
-        if (!this.run) return null;
+    get_x_y(p){
+        let flag1 = null;
+        let flag2 = null;
+        let flag3 = null;
+        let coordinates;
+        let flags_and_objects = utils.get_flags_and_objects_2(p);
+        let flags = flags_and_objects[0];
+        let objects = flags_and_objects[1];
 
-        if (this.role === 'goalie') {
-            return this.decideGoalie(world);
+        if (flags.length === 2){
+            //console.log(flags);
+            flag1 = flags[0];
+            flag2 = flags[1];
+            let e1 = this.get_unit_vector(flag1[3]);
+            let e2 = this.get_unit_vector(flag2[3]);
+
+            let object;
+            let obj_coords;
+            coordinates = utils.solveby2(flag1[2], flag2[2], flag1[0], flag1[1], flag2[0], flag2[1],
+                e1, e2, this.x_boundary, this.y_boundary);
+            if (coordinates){
+                //console.log('coordinates:', coordinates);   
+            }
+                
         }
 
-        const assignment = this.coordinator.getAssignment(this.agentId);
-        if (assignment.task === 'attack_ball') {
-            return this.decideAttacker(world);
+        if (flags.length === 3){
+            flag1 = flags[0];
+            flag2 = flags[1];
+            flag3 = flags[2];
+            coordinates = utils.solveby3(flag1[2], flag2[2], flag3[2], flag1[0], flag1[1],
+                flag2[0], flag2[1], flag3[0], flag3[1]);
+                //if (!isNaN(coordinates[0]) && !isNaN(coordinates[0]) && coordinates[1] !== -Infinity) {
+                //    console.log('coordinates:', coordinates);
+                //}
+                //console.log("coordinates: ", coordinates);
         }
-        return this.decideSupport(world, assignment.target);
+
+        if (objects.length > 0){
+            let object = objects[0];
+                //console.log(object);
+            let eo = this.get_unit_vector(object[1]);
+            if (!eo){
+                return;
+            }
+            let obj_coords = utils.get_object_coords(flag1[2], object[0], coordinates[0], coordinates[1], flag1[0], flag1[1], flag1[3], object[1], eo);
+            if (obj_coords){
+                //console.log("obj_coords:", obj_coords);    
+            }        
+        }           
     }
+    
 
-    decideAttacker(world) {
-        this.fsm.state = 'attack_ball';
-
-        const ball = this.visible('b');
-        if (!ball) {
-            this.fsm.searchStep += 1;
-            return this.navigator.search(this.fsm.searchStep);
-        }
-
-        const approach = this.navigator.approachBall(ball);
-        if (!approach.done) {
-            this.fsm.searchStep = 0;
-            return approach.command;
-        }
-
-        const goal = this.visible(this.opponentGoalName());
-        if (goal) {
-            if (Math.abs(goal.direction) > 12) {
-                return { n: 'turn', v: goal.direction };
+    sendCmd() {
+        //console.log(this.act);
+        if (this.run) {
+            // Игра начата
+            if (this.act) {
+                // Есть команда от игрока
+                if (this.act.n === 'kick')
+                    // Пнуть мяч
+                    this.socketSend(this.act.n, this.act.v);
+                // Движение и поворот
+                else this.socketSend(this.act.n, this.act.v);
             }
-            return this.navigator.kickTo(goal, true);
+            this.act = null; // Сброс команды
         }
-
-        const sideKick = this.agentId % 2 === 0 ? 30 : -30;
-        return { n: 'kick', v: [25, sideKick] };
-    }
-
-    decideSupport(world, targetPoint) {
-        this.fsm.state = 'support';
-
-        const ball = this.visible('b');
-        if (ball && ball.distance < 1.0) {
-            const goal = this.visible(this.opponentGoalName());
-            if (goal) {
-                return this.navigator.kickTo(goal, false);
-            }
-            return { n: 'kick', v: [20, 30] };
-        }
-
-        const nav = this.navigator.navigateToPoint(world.pose, targetPoint, 2.0);
-        if (nav.done) {
-            return { n: 'turn', v: 20 };
-        }
-        if (nav.command) {
-            this.fsm.searchStep = 0;
-            return nav.command;
-        }
-
-        this.fsm.searchStep += 1;
-        return this.navigator.search(this.fsm.searchStep);
-    }
-
-    decideGoalie(world) {
-        const ball = this.visible('b');
-
-        if (ball) {
-            if (ball.distance < 1.0) {
-                const goal = this.visible(this.opponentGoalName());
-                if (goal) {
-                    return this.navigator.kickTo(goal, true);
-                }
-                return { n: 'kick', v: [80, 0] };
-            }
-
-            if (ball.distance < 2.0 && Math.abs(ball.direction) < 25) {
-                return { n: 'catch', v: ball.direction };
-            }
-
-            if (Math.abs(ball.direction) > 10) {
-                return { n: 'turn', v: ball.direction };
-            }
-            return { n: 'dash', v: 80 };
-        }
-
-        const ownGoal = this.visible(this.ownGoalName());
-        if (!ownGoal) {
-            this.fsm.searchStep += 1;
-            return this.navigator.search(this.fsm.searchStep);
-        }
-
-        if (Math.abs(ownGoal.direction) > 8) {
-            return { n: 'turn', v: ownGoal.direction };
-        }
-
-        if (ownGoal.distance > 1.7) {
-            return { n: 'dash', v: 50 };
-        }
-
-        return { n: 'turn', v: 30 };
     }
 }
 
-module.exports = MultiPlayerAgent;
+module.exports = Agent;
+

@@ -1,72 +1,54 @@
-'use strict';
+/**
+ * @module lab3/app.js
+ * Точка входа лабораторной работы: инициализирует агентов, роли и подключение к серверу симуляции.
+ */
 
-const TeamCoordinator = require('./coordinator');
-const MultiPlayerAgent = require('./agent');
+const readline = require('readline');
+const Agent = require('./agent');
+const Socket = require('./socket');
+const Controller = require('./controller');
+const Manager = require("./manager");
+const dt = require("./goal_dt");
+const dt2 = require("./echelon2_dt");
+const dt2_2 = require("./echelon2_dt2");
+const goal_keep_dt = require("./goal_keeper_dt");
+const VERSION = 7;
 
-function getArg(flag, fallback) {
-    const index = process.argv.indexOf(flag);
-    if (index === -1 || index + 1 >= process.argv.length) return fallback;
-    return process.argv[index + 1];
-}
 
-function getNumberArg(flag, fallback) {
-    const value = Number(getArg(flag, fallback));
-    return Number.isFinite(value) ? value : fallback;
-}
+(async () => {
+    let playerCords1, playerCords2, rotationSpeed;
 
-function createLayout(count) {
-    const presets = [
-        { role: 'striker', home: { x: -20, y: 0 }, followDx: 6, followDy: 0, goalie: false },
-        { role: 'support_left', home: { x: -25, y: -12 }, followDx: 10, followDy: -8, goalie: false },
-        { role: 'support_right', home: { x: -25, y: 12 }, followDx: 10, followDy: 8, goalie: false },
-        { role: 'goalie', home: { x: -50, y: 0 }, followDx: 0, followDy: 0, goalie: true },
-    ];
-
-    const layout = {};
-    for (let i = 1; i <= count; i += 1) {
-        const preset = presets[i - 1] || {
-            role: `support_${i}`,
-            home: { x: -28, y: (i % 2 === 0 ? -1 : 1) * (6 + i) },
-            followDx: 11,
-            followDy: (i % 2 === 0 ? -1 : 1) * 8,
-            goalie: false,
-        };
-        layout[i] = { ...preset, side: 'l' };
-    }
-    return layout;
-}
-
-const teamName = getArg('--team', 'teamA');
-const host = getArg('--host', '127.0.0.1');
-const port = getNumberArg('--port', 6000);
-const playerCount = Math.max(2, getNumberArg('--players', 4));
-const debug = process.argv.includes('--debug');
-
-const layout = createLayout(playerCount);
-const coordinator = new TeamCoordinator(layout);
-const agents = [];
-
-for (let id = 1; id <= playerCount; id += 1) {
-    const info = layout[id];
-    const agent = new MultiPlayerAgent({
-        teamName,
-        host,
-        port,
-        role: info.role,
-        goalie: info.goalie,
-        start: { ...info.home },
-        agentId: id,
-        coordinator,
-        layout,
-        debug,
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
     });
-    agent.startAgent();
-    agents.push(agent);
-}
+    const it = rl[Symbol.asyncIterator]();
 
-process.on('SIGINT', () => {
-    for (const agent of agents) {
-        agent.stopAgent();
-    }
-    process.exit(0);
-});
+    console.log('Enter first player coords (x,y):');
+    playerCords1 = (await it.next()).value.split(' ').map((a) => +a);
+    console.log('Enter second player coords (x,y):');
+    playerCords2 = (await it.next()).value.split(' ').map((a) => +a);    
+    rl.close();
+
+
+    let player1 = new Agent('A');
+    player1.dt = dt2;
+    player1.manager = new Manager();
+
+    let player2 = new Agent('A');
+    player2.dt = dt2_2;
+    player2.manager = new Manager();
+
+    let goalKeeper = new Agent("B");
+    goalKeeper.dt = goal_keep_dt;
+    goalKeeper.manager = new Manager();
+    goalKeeper.goalie = true;
+
+    await Socket(player1, 'A', VERSION);
+    await Socket(player2, 'A', VERSION);
+    await Socket(goalKeeper, 'B', VERSION, true);
+
+    await player1.socketSend('move', `${playerCords1[0]} ${playerCords1[1]}`);
+    await player2.socketSend('move', `${playerCords2[0]} ${playerCords2[1]}`);
+    await goalKeeper.socketSend('move', "-20 0");    
+})();

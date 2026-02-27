@@ -1,240 +1,236 @@
-'use strict';
+/**
+ * @module lab4/agent.js
+ * Реализация поведения игрового агента: обработка перцептов, обновление внутреннего состояния и выбор действий.
+ */
 
-const BaseAgent = require('../lab2/lib/base_agent');
-const Navigator = require('../lab2/lib/navigator');
-const ObjectFilter = require('../lab2/lib/object_filter');
+const Msg = require('./msg');
+const readline = require('readline');
+const utils = require("./utils");
 
-class CoordinatedAgent extends BaseAgent {
-    constructor(options) {
-        super(options);
-        this.navigator = new Navigator();
-        this.filter = new ObjectFilter();
+// имя первого игрока: p"A"1
 
-        this.role = options.role || 'passer';
-        this.filteredObjects = [];
-
-        this.fsm = {
-            state: 'wait_play_on',
-            searchStep: 0,
-            goSent: false,
-            goReceivedTime: -1,
-            goBoostUntil: -1,
-        };
+class Agent {
+    constructor(teamName) {
+        this.position = 'l'; // По умолчанию - левая половина поля
+        this.run = true; // Игра начата
+        this.act = null; // Действия
+        this.rotationSpeed = null; // скорость вращения
+        this.x_boundary = 57.5;
+        this.y_boundary = 39;
+        this.teamName = teamName;
+        this.DirectionOfSpeed = null;
+        this.turnSpeed = 10; // скорость вращения
+        this.flag_distance_epsilon = 1; // значение близости к флагу
+        this.flag_direction_epsilon = 10; // значение близости по углу
+        this.max_speed = 100; // максимальная скорость
+        this.ball_direction_epsilon = 0.5;
+        this.leading = false;
+        this.goalie = false; // является ли игрок вратарем
+        this.prevCatch = 0;
+        this.prevTact = null;
+        this.playerName = "";
     }
 
-    onInit() {
-        this.log(`initialized coordinated role=${this.role}`);
-    }
+    get_unit_vector(Direction){
+        if (!this.DirectionOfSpeed){
+            return;
+        }
+        if (this.teamName === 'A'){
+            var angle = this.DirectionOfSpeed -  Direction;
+            angle = angle * Math.PI / 180;
 
-    onGoal() {
-        this.fsm.state = 'wait_play_on';
-        this.fsm.searchStep = 0;
-        this.fsm.goSent = false;
-        this.fsm.goReceivedTime = -1;
-        this.fsm.goBoostUntil = -1;
-        this.moveToStart();
-    }
-
-    onHear(hear) {
-        if (hear.sender !== 'referee' && hear.message === 'go') {
-            this.fsm.goReceivedTime = hear.time;
-            this.fsm.goBoostUntil = hear.time + 20;
+            return [Math.cos(angle), -Math.sin(angle)];
         }
     }
 
-    onSee(world) {
-        this.filteredObjects = this.filter.update(world.objects);
+    msgGot(msg) {
+        // Получение сообщения
+        let data = msg.toString(); // Приведение
+        this.processMsg(data); // Разбор сообщения
+        this.sendCmd(); // Отправка команды
     }
 
-    mirrorName(name) {
-        if (!name || this.side !== 'r') return name;
-        const parts = name.split(' ');
-        for (let i = 0; i < parts.length; i += 1) {
-            if (parts[i] === 'l') parts[i] = 'r';
-            else if (parts[i] === 'r') parts[i] = 'l';
-        }
-        return parts.join(' ');
+    setSocket(socket) {
+        // Настройка сокета
+        this.socket = socket;
     }
 
-    visible(name) {
-        let best = null;
-        for (const obj of this.filteredObjects) {
-            if (obj.name !== name) continue;
-            if (obj.distance === null) continue;
-            if (!best || obj.distance < best.distance) best = obj;
-        }
-        return best;
+    async socketSend(cmd, value, goalie) {
+        // Отправка команды
+        await this.socket.sendMsg(`(${cmd} ${value})`);
     }
 
-    gotoVisibleFlag(flagName, reach = 3) {
-        const target = this.visible(this.mirrorName(flagName));
-        if (!target) {
-            this.fsm.searchStep += 1;
-            return { done: false, command: this.navigator.search(this.fsm.searchStep) };
-        }
-
-        const nav = this.navigator.navigateToVisible(target, reach);
-        if (nav.done) {
-            this.fsm.searchStep = 0;
-            return { done: true, command: { n: 'turn', v: 0 } };
-        }
-
-        this.fsm.searchStep = 0;
-        return { done: false, command: nav.command };
+    processMsg(msg) {
+        // Обработка сообщения
+        let data = Msg.parseMsg(msg); // Разбор сообщения
+        if (!data) throw new Error('Parse error\n' + msg);
+        if (data.cmd === 'init') this.initAgent(data.p); // Инициализация
+        this.analyzeEnv(data.msg, data.cmd, data.p); // Обработка
     }
 
-    decide(world) {
-        if (!this.run) return null;
-        return this.role === 'passer' ? this.decidePasser(world) : this.decideStriker(world);
+    initAgent(p) {
+        if (p[0] === 'r') this.position = 'r'; // Правая половина поля
+        if (p[1]) this.id = p[1]; // id игрока
     }
 
-    decidePasser() {
-        if (this.fsm.state === 'wait_play_on') {
-            this.fsm.state = 'move_to_pass_flag';
-        }
 
-        if (this.fsm.state === 'move_to_pass_flag') {
-            const move = this.gotoVisibleFlag('f p l c', 2.5);
-            if (move.done) {
-                this.fsm.state = 'seek_ball';
-            }
-            return move.command;
-        }
-
-        if (this.fsm.state === 'announce_pass') {
-            this.fsm.state = 'kick_pass';
-            this.fsm.goSent = true;
-            return { n: 'say', v: 'go' };
-        }
-
-        if (this.fsm.state === 'kick_pass') {
-            const ball = this.visible('b');
-            if (!ball) {
-                this.fsm.state = 'seek_ball';
-                return this.navigator.search(this.fsm.searchStep++);
-            }
-            if (ball.distance > 0.9) {
-                const nav = this.navigator.approachBall(ball);
-                return nav.command || this.navigator.search(this.fsm.searchStep++);
-            }
-
-            const teammate = this.bestPassTarget();
-            this.fsm.state = 'after_pass';
-            if (teammate) {
-                return { n: 'kick', v: [35, teammate.direction] };
-            }
-
-            const fallback = this.visible(this.opponentGoalName());
-            return { n: 'kick', v: [30, fallback ? fallback.direction : 10] };
-        }
-
-        if (this.fsm.state === 'seek_ball') {
-            const ball = this.visible('b');
-            if (!ball) {
-                this.fsm.searchStep += 1;
-                return this.navigator.search(this.fsm.searchStep);
-            }
-
-            const approach = this.navigator.approachBall(ball);
-            if (!approach.done) {
-                return approach.command;
-            }
-
-            this.fsm.state = this.fsm.goSent ? 'kick_pass' : 'announce_pass';
-            return { n: 'turn', v: 0 };
-        }
-
-        if (this.fsm.state === 'after_pass') {
-            const back = this.gotoVisibleFlag('f p l c', 2.5);
-            if (back.done) {
-                this.fsm.state = 'seek_ball';
-                this.fsm.goSent = false;
-            }
-            return back.command;
-        }
-
-        this.fsm.state = 'seek_ball';
-        return { n: 'turn', v: 20 };
+    search_obj(obj_name){
+        // Выдает действие для поиска объекта
+        return {n: 'turn', v: this.turnSpeed};
     }
 
-    bestPassTarget() {
-        let best = null;
-        for (const obj of this.filteredObjects) {
-            if (obj.kind !== 'player') continue;
-            if (obj.team && obj.team !== this.teamName) continue;
-            if (obj.unum && this.unum && obj.unum === this.unum) continue;
-            if (obj.distance === null || obj.direction === null) continue;
-            if (obj.distance < 0.8) continue;
-            if (!best || obj.distance > best.distance) best = obj;
+    get_flag_actions(see_data, flag_name){
+        let obj = utils.see_object(flag_name, see_data);
+        if (!obj){
+            return this.search_obj(flag_name);
         }
-        return best;
+
+        let direction = obj[1];
+        let distance = obj[0];
+
+        if (distance < this.flag_distance_epsilon){
+            return "complete";
+        }
+
+        if (Math.abs(direction) >= this.flag_direction_epsilon){
+            return {n: "turn", v: direction};
+        }
+
+        let dash = 0;
+        if (distance > 5){
+            dash = this.max_speed;
+        } else {
+            dash = 20;
+        }
+        
+        
+        return {n: 'dash', v: dash};
+
     }
 
-    decideStriker(world) {
-        if (this.fsm.state === 'wait_play_on') {
-            this.fsm.state = 'move_lane_1';
+    get_kick_actions(see_data, flag_name){
+        let ball_name = 'b';
+        let ball = utils.see_object(ball_name, see_data);
+        if (!ball){
+            return this.search_obj(ball_name);
         }
 
-        if (this.fsm.state === 'move_lane_1') {
-            const lane = this.gotoVisibleFlag('f p l b', 3.0);
-            if (lane.done) {
-                this.fsm.state = 'move_lane_2';
+        let direction = ball[1];
+        let distance = ball[0];
+
+        if (distance < this.ball_direction_epsilon){
+            let flag = utils.see_object(flag_name, see_data);
+            if (!flag){
+                return {n: 'kick', v: 10, d: 45}
             }
-            return lane.command;
+            return {n: "kick", v: 100, d: flag[1]}
         }
 
-        if (this.fsm.state === 'move_lane_2') {
-            const lane = this.gotoVisibleFlag('f g r b', 3.0);
-            if (lane.done) {
-                this.fsm.state = 'wait_pass';
-            }
-            return lane.command;
+        if (Math.abs(direction) >= this.flag_direction_epsilon){
+            return {n: "turn", v: direction};
         }
 
-        if (this.fsm.state === 'wait_pass') {
-            const ball = this.visible('b');
-            if (ball) {
-                this.fsm.state = 'attack_ball';
-                return { n: 'turn', v: 0 };
-            }
+        let dash = 0;
+        if (distance > 5){
+            dash = this.max_speed;
+        } else {
+            dash = 20;
+        }
+        
+        return {n: 'dash', v: dash};
 
-            if (this.fsm.goReceivedTime >= 0 && world.time - this.fsm.goReceivedTime < 20) {
-                this.fsm.state = 'attack_ball';
-                return { n: 'dash', v: 70 };
-            }
+    }
 
-            if (this.fsm.goBoostUntil >= 0 && world.time <= this.fsm.goBoostUntil) {
-                return { n: 'dash', v: 75 };
-            }
+    analyzeEnv(msg, cmd, p) {
+        if (this.teamName === "B"){
+            return;
+        }
+        
+        let tact = p[0];
+        
 
-            return { n: 'turn', v: 20 };
+        
+        if (!this.prevTact || this.prevTact < tact || !this.act){
+            console.log(this.playerName, cmd);
+            console.log(this.act, this.prevTact, tact);
+            this.prevTact = tact;
+            this.act = null;
+            this.act = this.manager.getAction(this.dt, p, cmd);
+            console.log("-------------------");
+            //console.log("act: ", this.act);
+        }
+    }
+        
+
+    get_x_y(p){
+        let flag1 = null;
+        let flag2 = null;
+        let flag3 = null;
+        let coordinates;
+        let flags_and_objects = utils.get_flags_and_objects_2(p);
+        let flags = flags_and_objects[0];
+        let objects = flags_and_objects[1];
+
+        if (flags.length === 2){
+            //console.log(flags);
+            flag1 = flags[0];
+            flag2 = flags[1];
+            let e1 = this.get_unit_vector(flag1[3]);
+            let e2 = this.get_unit_vector(flag2[3]);
+
+            let object;
+            let obj_coords;
+            coordinates = utils.solveby2(flag1[2], flag2[2], flag1[0], flag1[1], flag2[0], flag2[1],
+                e1, e2, this.x_boundary, this.y_boundary);
+            if (coordinates){
+                //console.log('coordinates:', coordinates);   
+            }
+                
         }
 
-        if (this.fsm.state === 'attack_ball') {
-            const ball = this.visible('b');
-            if (!ball) {
-                return { n: 'dash', v: 80 };
-            }
-
-            const approach = this.navigator.approachBall(ball);
-            if (!approach.done) {
-                return approach.command;
-            }
-
-            const goal = this.visible(this.opponentGoalName());
-            if (goal) {
-                if (Math.abs(goal.direction) > 12) {
-                    return { n: 'turn', v: goal.direction };
-                }
-                return { n: 'kick', v: [100, goal.direction] };
-            }
-
-            return { n: 'kick', v: [40, 45] };
+        if (flags.length === 3){
+            flag1 = flags[0];
+            flag2 = flags[1];
+            flag3 = flags[2];
+            coordinates = utils.solveby3(flag1[2], flag2[2], flag3[2], flag1[0], flag1[1],
+                flag2[0], flag2[1], flag3[0], flag3[1]);
+                //if (!isNaN(coordinates[0]) && !isNaN(coordinates[0]) && coordinates[1] !== -Infinity) {
+                //    console.log('coordinates:', coordinates);
+                //}
+                //console.log("coordinates: ", coordinates);
         }
 
-        this.fsm.state = 'wait_pass';
-        return { n: 'turn', v: 20 };
+        if (objects.length > 0){
+            let object = objects[0];
+                //console.log(object);
+            let eo = this.get_unit_vector(object[1]);
+            if (!eo){
+                return;
+            }
+            let obj_coords = utils.get_object_coords(flag1[2], object[0], coordinates[0], coordinates[1], flag1[0], flag1[1], flag1[3], object[1], eo);
+            if (obj_coords){
+                //console.log("obj_coords:", obj_coords);    
+            }        
+        }           
+    }
+    
+
+    sendCmd() {
+        //console.log(this.act);
+        if (this.run) {
+            // Игра начата
+            if (this.act) {
+                // Есть команда от игрока
+                if (this.act.n === 'kick')
+                    // Пнуть мяч
+                    this.socketSend(this.act.n, this.act.v);
+                // Движение и поворот
+                else this.socketSend(this.act.n, this.act.v);
+            }
+            //this.act = null; // Сброс команды
+        }
     }
 }
 
-module.exports = CoordinatedAgent;
+module.exports = Agent;
+

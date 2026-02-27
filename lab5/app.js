@@ -1,52 +1,23 @@
-'use strict';
+/**
+ * @module lab5/app.js
+ * Точка входа лабораторной работы: инициализирует агентов, роли и подключение к серверу симуляции.
+ */
 
-const AutomatonAgent = require('./agent');
+const Agent = require('./agent');
+const Socket = require('./socket');
+const VERSION = 7;
 
-function getArg(flag, fallback) {
-    const index = process.argv.indexOf(flag);
-    if (index === -1 || index + 1 >= process.argv.length) return fallback;
-    return process.argv[index + 1];
-}
 
-function getNumberArg(flag, fallback) {
-    const value = Number(getArg(flag, fallback));
-    return Number.isFinite(value) ? value : fallback;
-}
+(async () => {
+    let score_playerCords = [-20, 0];
+    let goalkeeper_coords = [-40, 0];
 
-const host = getArg('--host', '127.0.0.1');
-const port = getNumberArg('--port', 6000);
-const attackTeam = getArg('--attack-team', 'teamA');
-const defendTeam = getArg('--defend-team', 'teamB');
-const debug = process.argv.includes('--debug');
+    let score_player = new Agent("A", false);
+    let goalkeeper = new Agent("B", true);
 
-const agents = [
-    new AutomatonAgent({
-        teamName: attackTeam,
-        host,
-        port,
-        role: 'attacker',
-        goalie: false,
-        start: { x: -12, y: 0 },
-        debug,
-    }),
-    new AutomatonAgent({
-        teamName: defendTeam,
-        host,
-        port,
-        role: 'goalie',
-        goalie: true,
-        start: { x: 50, y: 0 },
-        debug,
-    }),
-];
+    await Socket(score_player, 'A', VERSION);
+    await Socket(goalkeeper, 'B', VERSION);
 
-for (const agent of agents) {
-    agent.startAgent();
-}
-
-process.on('SIGINT', () => {
-    for (const agent of agents) {
-        agent.stopAgent();
-    }
-    process.exit(0);
-});
+    await score_player.socketSend('move', `${score_playerCords[0]} ${score_playerCords[1]}`);
+    await goalkeeper.socketSend('move', `${goalkeeper_coords[0]} ${goalkeeper_coords[1]}`);
+})();

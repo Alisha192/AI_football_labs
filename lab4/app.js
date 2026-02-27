@@ -1,49 +1,56 @@
-'use strict';
+/**
+ * @module lab4/app.js
+ * Точка входа лабораторной работы: инициализирует агентов, роли и подключение к серверу симуляции.
+ */
 
-const CoordinatedAgent = require('./agent');
+const readline = require('readline');
+const Agent = require('./agent');
+const Socket = require('./socket');
+const Controller = require('./controller');
+const Manager = require("./manager");
+const dt = require("./goal_scorer_dt");
+const dt2 = require("./assist_player_dt");
+const VERSION = 7;
 
-function getArg(flag, fallback) {
-    const index = process.argv.indexOf(flag);
-    if (index === -1 || index + 1 >= process.argv.length) return fallback;
-    return process.argv[index + 1];
-}
 
-function getNumberArg(flag, fallback) {
-    const value = Number(getArg(flag, fallback));
-    return Number.isFinite(value) ? value : fallback;
-}
+(async () => {
+    let assist_playerCords, score_playerCords, rotationSpeed, npc1Cords, npc2Cords;
 
-const teamName = getArg('--team', 'teamA');
-const host = getArg('--host', '127.0.0.1');
-const port = getNumberArg('--port', 6000);
-const debug = process.argv.includes('--debug');
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+    });
+    const it = rl[Symbol.asyncIterator]();
 
-const agents = [
-    new CoordinatedAgent({
-        teamName,
-        host,
-        port,
-        role: 'passer',
-        start: { x: -24, y: 0 },
-        debug,
-    }),
-    new CoordinatedAgent({
-        teamName,
-        host,
-        port,
-        role: 'striker',
-        start: { x: -22, y: -8 },
-        debug,
-    }),
-];
+    assist_playerCords = [-20, 0];
+    score_playerCords = [-20, 20];
 
-for (const agent of agents) {
-    agent.startAgent();
-}
+    npc1Cords = [-57.5, -38];
+    npc2Cords = [-57.5, 38];
 
-process.on('SIGINT', () => {
-    for (const agent of agents) {
-        agent.stopAgent();
-    }
-    process.exit(0);
-});
+
+    let assist_player = new Agent('A');
+    assist_player.playerName = "assist_player";
+    assist_player.dt = dt2;
+    assist_player.manager = new Manager();
+
+    let score_player = new Agent('A');
+    score_player.playerName = "score_player";
+    score_player.dt = dt;
+    score_player.manager = new Manager();
+
+    let npc1 = new Agent("B");
+    let npc2 = new Agent("B");
+
+    await Socket(assist_player, 'A', VERSION);
+    await Socket(score_player, 'A', VERSION);
+
+    await Socket(npc1, 'B', VERSION);
+    await Socket(npc2, 'B', VERSION);
+
+    await assist_player.socketSend('move', `${assist_playerCords[0]} ${assist_playerCords[1]}`);
+    await score_player.socketSend('move', `${score_playerCords[0]} ${score_playerCords[1]}`);
+
+    await npc1.socketSend('move', `${npc1Cords[0]} ${npc1Cords[1]}`);
+    await npc2.socketSend('move', `${npc2Cords[0]} ${npc2Cords[1]}`);  
+})();
