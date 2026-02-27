@@ -24,6 +24,9 @@ class RouteAgent extends BaseAgent {
 
         this.goals = 0;
 
+        // Флаг, указывающий, началась ли игра
+        this.gameStarted = false;
+
         this.state = {
             index: 0,
             searchStep: 0,
@@ -35,7 +38,20 @@ class RouteAgent extends BaseAgent {
 
     onInit() {
         this.sequence = this.prepareSequenceBySide();
-        this.log('initialized route controller');
+        this.log('initialized route controller, waiting for play_on...');
+    }
+
+    onHear(message) {
+        // Проверяем, является ли сообщение командой рефери
+        if (message.sender === 'referee') {
+            this.log(`referee said: ${message.message}`);
+
+            // Если получена команда play_on, начинаем игру
+            if (message.message === 'play_on') {
+                this.gameStarted = true;
+                this.log('game started!');
+            }
+        }
     }
 
     onGoal(message) {
@@ -44,6 +60,8 @@ class RouteAgent extends BaseAgent {
         this.state.searchStep = 0;
         this.sequence = this.prepareSequenceBySide();
         this.moveToStart();
+        // После гола игра останавливается, ждем следующего play_on
+        this.gameStarted = false;
         this.log(`goal event: ${message}, restart route (goals=${this.goals})`);
     }
 
@@ -102,6 +120,11 @@ class RouteAgent extends BaseAgent {
     }
 
     decide(world) {
+        // Если игра не началась, не выполняем никаких действий
+        if (!this.gameStarted) {
+            return null;
+        }
+
         if (!this.run) return null;
 
         const action = this.currentAction();
