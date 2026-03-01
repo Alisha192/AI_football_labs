@@ -1,5 +1,10 @@
+/*
+ * Верхний уровень полевого игрока: тактические решения и выбор приоритетной цели.
+ */
+
 const utils = require("./utils");
 
+//     Основная структура стратегии: дерево решений или конечный автомат поведения.
 const CTRL_HIGH = {
 	execute(taken, controllers, bottom, top, direction, center){
 		let act;
@@ -104,4 +109,5 @@ const CTRL_HIGH = {
 	}
 }
 
+//     Экспортирую стратегию/контроллер для подключения в агенте.
 module.exports = CTRL_HIGH;

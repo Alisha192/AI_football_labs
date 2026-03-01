@@ -1,8 +1,14 @@
+/*
+ * Логика одного агента: принимаю сообщения от сервера, обновляю внутреннее состояние мира и выбираю следующее действие.
+ */
+
 const Msg = require('./msg');
 const readline = require('readline');
 const utils = require("./utils");
 
+//        Класс агента объединяет сенсорику, внутреннее состояние и исполнительные команды игрока.
 class Agent {
+    //        Инициализирую внутреннее состояние агента и значения по умолчанию.
     constructor(teamName, controller) {
         this.position = 'l'; // По умолчанию - левая половина поля
         this.run = false; // Игра начата
@@ -20,6 +26,7 @@ class Agent {
         this.ball_direction_epsilon = 0.5;
     }
 
+    //        Перевожу наблюдаемое направление в единичный вектор для геометрических расчётов.
     get_unit_vector(Direction){
         if (!this.DirectionOfSpeed){
             return;
@@ -32,6 +39,7 @@ class Agent {
         }
     }
 
+    //        Центральная точка входа: получаю пакет, разбираю его и запускаю отправку ответной команды.
     msgGot(msg) {
         // Получение сообщения
         let data = msg.toString(); // Приведение
@@ -39,16 +47,19 @@ class Agent {
         this.sendCmd(); // Отправка команды
     }
 
+    //        Сохраняю UDP-сокет агента для последующих отправок команд.
     setSocket(socket) {
         // Настройка сокета
         this.socket = socket;
     }
 
+    //        Формирую и отправляю серверу одну команду симулятора.
     async socketSend(cmd, value) {
         // Отправка команды
         await this.socket.sendMsg(`(${cmd} ${value})`);
     }
 
+    //        Парсю входящее сообщение и обновляю состояние агента по типу события.
     processMsg(msg) {
         // Обработка сообщения
         let data = Msg.parseMsg(msg); // Разбор сообщения
@@ -57,11 +68,13 @@ class Agent {
         this.analyzeEnv(data.msg, data.cmd, data.p); // Обработка
     }
 
+    //        Фиксирую сторону поля и идентификатор игрока после init.
     initAgent(p) {
         if (p[0] === 'r') this.position = 'r'; // Правая половина поля
         if (p[1]) this.id = p[1]; // id игрока
     }
 
+    //        Служебный метод: отдельный шаг в цикле восприятия и принятия решения.
     see_object(obj_name, see_data){
         /*
         Если объект не виден, возвращает null.
@@ -80,11 +93,13 @@ class Agent {
         return null;
     }
 
+    //        Служебный метод: отдельный шаг в цикле восприятия и принятия решения.
     search_obj(obj_name){
         // Выдает действие для поиска объекта
         return {n: 'turn', v: this.turnSpeed};
     }
 
+    //        Служебный метод: отдельный шаг в цикле восприятия и принятия решения.
     get_flag_actions(see_data, flag_name){
         let obj = this.see_object(flag_name, see_data);
         if (!obj){
@@ -114,6 +129,7 @@ class Agent {
 
     }
 
+    //        Служебный метод: отдельный шаг в цикле восприятия и принятия решения.
     get_kick_actions(see_data, flag_name){
         let ball_name = 'b';
         let ball = this.see_object(ball_name, see_data);
@@ -147,6 +163,7 @@ class Agent {
 
     }
 
+    //        Анализирую наблюдаемую сцену и вычисляю следующее действие.
     analyzeEnv(msg, cmd, p) {
 
         if (cmd === "hear"){
@@ -182,6 +199,7 @@ class Agent {
     }
         
 
+    //        Служебный метод: отдельный шаг в цикле восприятия и принятия решения.
     get_x_y(p){
         let flag1 = null;
         let flag2 = null;
@@ -235,6 +253,7 @@ class Agent {
     }
     
 
+    //        Отправляю рассчитанное действие, когда игра в активной фазе.
     sendCmd() {
         //console.log(this.act);
         if (this.run) {

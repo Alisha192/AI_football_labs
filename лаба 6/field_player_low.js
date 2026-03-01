@@ -1,5 +1,10 @@
+/*
+ * Нижний уровень полевого игрока: базовые реакции и простые исполнительные действия.
+ */
+
 const utils = require("./utils");
 
+//     Основная структура стратегии: дерево решений или конечный автомат поведения.
 const CTRL_LOW = {
 	execute(taken, controllers, bottom, top, direction, center){
 		if (!taken.state.pos){
@@ -21,4 +26,5 @@ const CTRL_LOW = {
 	}
 }
 
+//     Экспортирую стратегию/контроллер для подключения в агенте.
 module.exports = CTRL_LOW;

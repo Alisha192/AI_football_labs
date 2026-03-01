@@ -1,3 +1,7 @@
+/*
+ * Точка входа лабы: здесь я создаю игроков, подключаю их к серверу и задаю стартовые позиции.
+ */
+
 const readline = require('readline');
 const Agent = require('./agent');
 const Socket = require('./socket');
@@ -9,6 +13,7 @@ const goalie_low = require("./ctrl_low");
 const goalie_middle = require("./ctrl_middle");
 const goalie_high = require("./ctrl_high");
 
+//     Фабрика игрока: здесь настраиваю стартовые параметры и набор контроллеров перед подключением к серверу.
 function createAgent(team, goalkeeper, controllers, bottom, top, center, start_x, start_y){
     let agent = new Agent(team, goalkeeper);
     agent.bottom = bottom;
@@ -20,6 +25,7 @@ function createAgent(team, goalkeeper, controllers, bottom, top, center, start_x
     return agent;
 }
 
+//     Основной сценарий лабы: поднимаю агентов, подключаю к серверу и расставляю на поле.
 (async () => {
     let A_team = [
         [-40, -20, -35, -40, -30],
@@ -87,6 +93,7 @@ function createAgent(team, goalkeeper, controllers, bottom, top, center, start_x
     goalkeeper_A.controllers = [goalie_low, goalie_middle, goalie_high];
     goalkeeper_B.controllers = [goalie_low, goalie_middle, goalie_high];
 
+    //     Подключаю агентов к rcssserver и сразу отправляю стартовые команды move.
     await Socket(goalkeeper_A, "A", VERSION, true);
     await goalkeeper_A.socketSend('move', `${goalkeeper_A.start_x} ${goalkeeper_A.start_y}`);
 

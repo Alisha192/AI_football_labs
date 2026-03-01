@@ -1,3 +1,7 @@
+/*
+ * Точка входа лабы: здесь я создаю игроков, подключаю их к серверу и задаю стартовые позиции.
+ */
+
 const readline = require('readline');
 const Agent = require('./agent');
 const Socket = require('./socket');
@@ -8,9 +12,11 @@ const dt2 = require("./assist_player_dt");
 const VERSION = 7;
 
 
+//     Основной сценарий лабы: поднимаю агентов, подключаю к серверу и расставляю на поле.
 (async () => {
     let assist_playerCords, score_playerCords, rotationSpeed, npc1Cords, npc2Cords;
 
+    //     Для интерактивных лаб читаю начальные параметры из консоли.
     const rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout,
@@ -37,6 +43,7 @@ const VERSION = 7;
     let npc1 = new Agent("B");
     let npc2 = new Agent("B");
 
+    //     Подключаю агентов к rcssserver и сразу отправляю стартовые команды move.
     await Socket(assist_player, 'A', VERSION);
     await Socket(score_player, 'A', VERSION);
 

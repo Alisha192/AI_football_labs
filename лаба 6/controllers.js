@@ -1,4 +1,9 @@
+/*
+ * Набор общих контроллеров и вспомогательных переходов для многоуровневой логики игроков.
+ */
+
 const Taken = require("./taken");
+//     Основная структура стратегии: дерево решений или конечный автомат поведения.
 const CTRL_LOW = {
 	execute(taken, controllers){
 		const next = controllers[0];
@@ -9,6 +14,7 @@ const CTRL_LOW = {
 	}
 }
 
+//     Основная структура стратегии: дерево решений или конечный автомат поведения.
 const CTRL_MIDDLE = {
 	action: "return",
 	turnData: "ft0",
@@ -68,6 +74,7 @@ const CTRL_MIDDLE = {
 }
 
 
+//     Основная структура стратегии: дерево решений или конечный автомат поведения.
 const CTRL_HIGH = {
 	execute(input){
 		const immediate = this.imidiateReaction(input);

@@ -1,5 +1,11 @@
+/*
+ * Логика вратаря в режиме time-machine: предугадываю траекторию и заранее выстраиваю позицию.
+ */
+
+//     Основная структура стратегии: дерево решений или конечный автомат поведения.
 const TA = {
 	current: "start", 
+	//     Хранилище рабочих переменных автомата/контроллера между циклами.
 	state: {
 		variables: {dist: null},
 		timers: {t: 0},
@@ -7,6 +13,7 @@ const TA = {
 		synch: undefined,
 		local: {},
 	},
+	//     Описание вершин автомата и допустимых рёбер между ними.
 	nodes: {
 		start: {n: "start", e: ["inGoal"]},
 		inGoal: {n: "inGoal", e: ["ballfound"]},
@@ -18,6 +25,7 @@ const TA = {
 		near: { n: "near", e: ["intercept", "inGoal"] },
 		intercept: { n: "intercept", e: ["inGoal"] },
 	},
+	//     Условия переходов и синхрособытия для смены состояния.
 	edges: {
 		start_inGoal: [{synch: "goBack!"}],
 		inGoal_ballfound: [{synch: "lookAround!"}],
@@ -34,6 +42,7 @@ const TA = {
 		near_intercept: [{synch: "canIntercept?"}],
 		intercept_inGoal: [{synch: 'runToBall!', assign: [{n: "t", v: 0, type: "timer"}]}],
 	},
+	//     Набор исполняемых процедур, которые формируют команды игроку.
 	actions: {
 		init(taken, state) {
 			// Инициализация игрока
@@ -157,5 +166,6 @@ const TA = {
 }	
 
 
+//     Экспортирую стратегию/контроллер для подключения в агенте.
 module.exports = TA;
 

@@ -1,3 +1,7 @@
+/*
+ * Альтернативный вариант логики второго эшелона с другим приоритетом перемещений и действий.
+ */
+
 const FL = "flag", KI = "kick", PL = "p";
 const leaderSpeed = 40, goalAngle = 4, rotationSpeed = 75;
 const fullSpeed = 100, avgSpeed = 40, lowSpeed = 20;

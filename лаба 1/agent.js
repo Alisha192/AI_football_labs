@@ -1,8 +1,14 @@
+/*
+ * Логика одного агента: принимаю сообщения от сервера, обновляю внутреннее состояние мира и выбираю следующее действие.
+ */
+
 const Msg = require('./msg');
 const readline = require('readline');
 const utils = require("./utils");
 
+//  Класс агента объединяет сенсорику, внутреннее состояние и исполнительные команды игрока.
 class Agent {
+    //   Инициализирую внутреннее состояние агента и значения по умолчанию.
     constructor(teamName) {
         this.position = 'l'; // По умолчанию - левая половина поля
         this.run = false; // Игра начата
@@ -14,6 +20,7 @@ class Agent {
         this.DirectionOfSpeed = null;
     }
 
+    //   Перевожу наблюдаемое направление в единичный вектор для геометрических расчётов.
     get_unit_vector(Direction) {
         if (!this.DirectionOfSpeed) {
             return;
@@ -27,6 +34,7 @@ class Agent {
         }
     }
 
+    //   Центральная точка входа: получаю пакет, разбираю его и запускаю отправку ответной команды.
     msgGot(msg) {
         // Получение сообщения
         let data = msg.toString(); // Приведение
@@ -34,16 +42,19 @@ class Agent {
         this.sendCmd(); // Отправка команды
     }
 
+    //   Сохраняю UDP-сокет агента для последующих отправок команд.
     setSocket(socket) {
         // Настройка сокета
         this.socket = socket;
     }
 
+    //   Формирую и отправляю серверу одну команду симулятора.
     async socketSend(cmd, value) {
         // Отправка команды
         await this.socket.sendMsg(`(${cmd} ${value})`);
     }
 
+    //   Парсю входящее сообщение и обновляю состояние агента по типу события.
     processMsg(msg) {
         // Обработка сообщения
         let data = Msg.parseMsg(msg); // Разбор сообщения
@@ -54,11 +65,13 @@ class Agent {
         this.analyzeEnv(data.msg, data.cmd, data.p); // Обработка
     }
 
+    //   Фиксирую сторону поля и идентификатор игрока после init.
     initAgent(p) {
         if (p[0] === 'r') this.position = 'r'; // Правая половина поля
         if (p[1]) this.id = p[1]; // id игрока
     }
 
+    //   Анализирую наблюдаемую сцену и вычисляю следующее действие.
     analyzeEnv(msg, cmd, p) {
         if (this.rotationSpeed) {
             if (!this.act) {
@@ -118,6 +131,7 @@ class Agent {
         }
     }
 
+    //   Отправляю рассчитанное действие, когда игра в активной фазе.
     sendCmd() {
         if (this.run) {
             // Игра начата

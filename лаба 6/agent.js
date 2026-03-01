@@ -1,3 +1,7 @@
+/*
+ * Логика одного агента: принимаю сообщения от сервера, обновляю внутреннее состояние мира и выбираю следующее действие.
+ */
+
 const Msg = require('./msg');
 const utils = require("./utils");
 const Flags = require('./flags');
@@ -6,7 +10,9 @@ const Taken = require("./taken");
 
 // имя первого игрока: p"A"1
 
+//     Класс агента объединяет сенсорику, внутреннее состояние и исполнительные команды игрока.
 class Agent {
+    //     Инициализирую внутреннее состояние агента и значения по умолчанию.
     constructor(teamName, goalkeeper) {
         this.position = 'l'; // По умолчанию - левая половина поля
         this.run = true; // Игра начата
@@ -41,6 +47,7 @@ class Agent {
 
     }
 
+    //     Центральная точка входа: получаю пакет, разбираю его и запускаю отправку ответной команды.
     msgGot(msg) {
         // Получение сообщения
         let data = msg.toString(); // Приведение
@@ -48,16 +55,19 @@ class Agent {
         this.sendCmd(); // Отправка команды
     }
 
+    //     Сохраняю UDP-сокет агента для последующих отправок команд.
     setSocket(socket) {
         // Настройка сокета
         this.socket = socket;
     }
 
+    //     Формирую и отправляю серверу одну команду симулятора.
     async socketSend(cmd, value, goalie) {
         // Отправка команды
         await this.socket.sendMsg(`(${cmd} ${value})`);
     }
 
+    //     Парсю входящее сообщение и обновляю состояние агента по типу события.
     processMsg(msg) {
         // Обработка сообщения
         let data = Msg.parseMsg(msg); // Разбор сообщения
@@ -66,17 +76,20 @@ class Agent {
         this.analyzeEnv(data.msg, data.cmd, data.p); // Обработка
     }
 
+    //     Фиксирую сторону поля и идентификатор игрока после init.
     initAgent(p) {
         if (p[0] === 'r') this.position = 'r'; // Правая половина поля
         if (p[1]) this.id = p[1]; // id игрока
     }
 
 
+    //     Служебный метод: отдельный шаг в цикле восприятия и принятия решения.
     search_obj(obj_name){
         // Выдает действие для поиска объекта
         return {n: 'turn', v: this.turnSpeed};
     }
 
+    //     Служебный метод: отдельный шаг в цикле восприятия и принятия решения.
     get_flag_actions(see_data, flag_name){
         let obj = utils.see_object(flag_name, see_data);
         if (!obj){
@@ -106,6 +119,7 @@ class Agent {
 
     }
 
+    //     Служебный метод: отдельный шаг в цикле восприятия и принятия решения.
     get_kick_actions(see_data, flag_name){
         let ball_name = 'b';
         let ball = utils.see_object(ball_name, see_data);
@@ -140,6 +154,7 @@ class Agent {
     }
 
 
+    //     Служебный метод: отдельный шаг в цикле восприятия и принятия решения.
     getDistsAndAngles(data){
         let sortedFlags = {};
         let res = [];
@@ -207,6 +222,7 @@ class Agent {
         return dists_and_angles;        
     }
 
+    //     Служебный метод: отдельный шаг в цикле восприятия и принятия решения.
     writeSeeData(data){
         this.state['ballPrev'] = this.state['ball'];
         this.state['playerPrev'] = this.state['player'];
@@ -274,14 +290,17 @@ class Agent {
         }
     }
 
+    //     Служебный метод: отдельный шаг в цикле восприятия и принятия решения.
     writeHearData(data){
         this.state['hear'] = {"who": data[0], "msg": data[1]};
     }
 
+    //     Служебный метод: отдельный шаг в цикле восприятия и принятия решения.
     writeSenseData(data){
         this.state['directionOfSpeed'] = data[3]['p'][1];
     }
 
+    //     Служебный метод: отдельный шаг в цикле восприятия и принятия решения.
     oldVers(msg, cmd, p){
         if (cmd === "hear"){
             if (p[2] === "play_on"){
@@ -298,6 +317,7 @@ class Agent {
         
     }
 
+    //     Анализирую наблюдаемую сцену и вычисляю следующее действие.
     analyzeEnv(msg, cmd, p) {
         //this.act = {n: "dash", v: -30};
         //return;
@@ -387,6 +407,7 @@ class Agent {
     }
    
 
+    //     Служебный метод: отдельный шаг в цикле восприятия и принятия решения.
     get_x_y(p){
         let flag1 = null;
         let flag2 = null;
@@ -440,6 +461,7 @@ class Agent {
     }
     
 
+    //     Отправляю рассчитанное действие, когда игра в активной фазе.
     sendCmd() {
         //console.log(this.act);
         if (this.run) {

@@ -1,3 +1,7 @@
+/*
+ * Менеджер временных сценариев: управляю переключением стратегий по ситуации и истории эпизода.
+ */
+
 const BEFORE_ACTION = 'beforeAction';
 const Manager = {
 	getAction(taken, ta) {

@@ -1,5 +1,11 @@
+/*
+ * Логика форварда в режиме time-machine: прогнозирую развитие эпизода и заранее готовлю действие.
+ */
+
+//     Основная структура стратегии: дерево решений или конечный автомат поведения.
 const TA = {
 	current: "start", 
+	//     Хранилище рабочих переменных автомата/контроллера между циклами.
 	state: {
 		variables: {dist: null},
 		timers: {t: 0},
@@ -7,12 +13,14 @@ const TA = {
 		synch: undefined,
 		local: {},
 	},
+	//     Описание вершин автомата и допустимых рёбер между ними.
 	nodes: {
 		start: {n: "start", e: ['ballfound']},
 		ballfound: {n: "ballfound", e: ["near", "far"]},
 		far: {n: "far", e: ["start"]},
 		near: {n: "near", e: ["start"]},
 	},
+	//     Условия переходов и синхрособытия для смены состояния.
 	edges: {
 		start_ballfound: [{synch: "lookAround!"}],
 		ballfound_near: [{guard: [{s: "lte", l: {v: "dist"}, r: 0.5}]}],
@@ -20,6 +28,7 @@ const TA = {
 		far_start: [{synch: "runToBall!"}],
 		near_start: [{synch: "kick!"}],
 	},
+	//     Набор исполняемых процедур, которые формируют команды игроку.
 	actions: {
 		beforeAction(taken, state) {
 			// Действие перед каждым вычислением
@@ -60,5 +69,6 @@ const TA = {
 }	
 
 
+//     Экспортирую стратегию/контроллер для подключения в агенте.
 module.exports = TA;
 

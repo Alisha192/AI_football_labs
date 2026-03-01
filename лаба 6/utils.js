@@ -1,6 +1,12 @@
+/*
+ * Вспомогательные геометрические и сервисные функции, которые использую в расчётах направления, расстояния и углов.
+ */
+
 const Flags = require('./flags');
 
+//     Публичный набор утилит, которые переиспользую в логике агентов и контроллеров.
 module.exports = {
+    //     Выбираю направление удара по воротам с учётом стороны поля.
     kick(taken){
         let side = taken.side;
         let flags, plus;
@@ -34,6 +40,7 @@ module.exports = {
         }
 
     },
+    //     Продвигаю мяч в атаку, если есть безопасный коридор.
     forward(taken){
         if (!taken.state.pos){
             return null;
@@ -61,6 +68,7 @@ module.exports = {
         }
         return null;        
     },
+    //     Вспомогательная функция для геометрии, фильтрации наблюдений или выбора действия.
     seeDir(taken){
         if (!taken.state.pos){
             return true;
@@ -80,6 +88,7 @@ module.exports = {
         }
         return false;
     },
+    //     Вспомогательная функция для геометрии, фильтрации наблюдений или выбора действия.
     canPass(pos, player, enemies, danger){
         if (Math.abs(player.x) > 46){
             return false;
@@ -102,6 +111,7 @@ module.exports = {
         }
         return true;
     },
+    //     Оцениваю безопасный пас по позициям своих и соперника.
     pass(taken){
         let side = taken.side;
         let sign = (side == 'l') ? 1 : -1;
@@ -149,9 +159,11 @@ module.exports = {
         return null;
         //return {n: "kick", v: "10 45"};
     },
+    //     Вспомогательная функция для геометрии, фильтрации наблюдений или выбора действия.
     turn(side, angle){
         return {n: 'turn', v: side * angle};
     },
+    //     Вспомогательная функция для геометрии, фильтрации наблюдений или выбора действия.
     teamTaken(taken){
         if (!taken.state.ball || !taken.state.pos){
             return false;
@@ -173,6 +185,7 @@ module.exports = {
         }
         return false;
     },
+    //     Вспомогательная функция для геометрии, фильтрации наблюдений или выбора действия.
     avoidCollision(taken){
         let avoidance = null;
         for (const name of ['myTeam', 'enemyTeam', 'players']){
@@ -184,6 +197,7 @@ module.exports = {
         }
         return null;
     },
+    //     Базовая логика сближения с мячом: поворот/рывок по дистанции.
     takeBall(dist, angle){
         if (Math.abs(angle) > 7){
             return {n: "turn", v: angle};
@@ -193,6 +207,7 @@ module.exports = {
         } 
         return {n: "dash", v: 100};
     },
+    //     Возвращаю игрока в назначенную тактическую зону.
     returnInZone(y, bottom, top, direction, taken){
         //console.log(taken.state.all_flags, y, bottom, top);
         if (y <= bottom && y >= top){
@@ -233,12 +248,14 @@ module.exports = {
         return [{n: "turn", v: -result}, {n: "dash", v: 75}];
         */
     },
+    //     Вспомогательная функция для геометрии, фильтрации наблюдений или выбора действия.
     inZone(y, bottom, top, direction){
         if (y <= bottom && y >= top){
             return true;
         }
         return false;
     },
+    //     Вспомогательная функция для геометрии, фильтрации наблюдений или выбора действия.
     getSpeed(x, direction, center, taken){
         return 100;
         let key = Object.keys(taken.state.all_flags)[0];
@@ -252,6 +269,7 @@ module.exports = {
         }
         return 40;
     },
+    //     Навожу игрока на мяч и выбираю скорость сближения.
     go2ball(x, y, bottom, top, center, ball_angle, direction, taken){
         //let zone = this.inZone(y, bottom, top, direction);
         let speed = this.getSpeed(x, direction, center, taken);
@@ -272,9 +290,11 @@ module.exports = {
         }
         return {n: "dash", v: speed};
     },
+    //     Вспомогательная функция для геометрии, фильтрации наблюдений или выбора действия.
     squares_diff(x1, x2){
         return x1 * x1 - x2 * x2
     },
+    //     Вспомогательная функция для геометрии, фильтрации наблюдений или выбора действия.
     find_parameter(param, data){
         for (const obj of data){
             if (typeof obj === 'number'){
@@ -285,6 +305,7 @@ module.exports = {
             }
         }        
     },
+    //     Вспомогательная функция для геометрии, фильтрации наблюдений или выбора действия.
     get_unit_vector(direction, directionOfSpeed){
         // TODO: добавить поддержку игрока из команды B
         if (directionOfSpeed === null){
@@ -316,6 +337,7 @@ module.exports = {
         return [X, Y];
     },
 
+    //     Вспомогательная функция для геометрии, фильтрации наблюдений или выбора действия.
     get_similarity(coord, x1, y1, x2, y2, e1, e2){
     	let vector1 = [x1 - coord[0], y1 - coord[1]];
     	let vector2 = [x2 - coord[0], y2 - coord[1]];
@@ -326,6 +348,7 @@ module.exports = {
         return result;
     },
 
+    //     Вспомогательная функция для геометрии, фильтрации наблюдений или выбора действия.
     get_best(coord1, coord2, x1, y1, x2, y2, e1, e2){
     	let sim1 = this.get_similarity(coord1, x1, y1, x2, y2, e1, e2);
     	let sim2 = this.get_similarity(coord2, x1, y1, x2, y2, e1, e2);
@@ -336,6 +359,7 @@ module.exports = {
     	return coord2;
     },
 
+    //     Двухфлажковая геометрия: выбираю наиболее правдоподобную из двух позиций.
     solveby2(d1, d2, x1, y1, x2, y2, e1, e2, x_bound, y_bound){
         let x, y, x_, y_;
         let possible_poses = [];
@@ -389,6 +413,7 @@ module.exports = {
         return result;
     },
 
+    //     Вспомогательная функция для геометрии, фильтрации наблюдений или выбора действия.
     get_object_coords(d1, da, x, y, x1, y1, a1, aa, eo){
         let d_a1 = d1 * d1 + da * da - 2 * d1 * da * Math.cos(Math.abs(a1 - aa) * Math.PI / 180);
         d_a1 = Math.pow(d_a1, 0.5);
@@ -401,6 +426,7 @@ module.exports = {
         return this.solveby2(da, d_a1, x, y, x1, y1, eo, null, 57.5, 39);
     },
 
+    //     Вспомогательная функция для геометрии, фильтрации наблюдений или выбора действия.
     find_different_x_y(flags, flag){
         for (const f of flags){
             if ((f[0] !== flag[0]) && (f[1] !== flag[1])){
@@ -416,6 +442,7 @@ module.exports = {
     },
 
 
+    //     Ищу конкретный объект в пакете see и возвращаю его измерения.
     see_object(obj_name, see_data){
         /*
         Если объект не виден, возвращает null.
@@ -435,6 +462,7 @@ module.exports = {
     },
 
 
+    //     Разбираю наблюдение и выделяю флаги/объекты для локализации.
     get_flags_and_objects_2(data){
         let flags = [];
         let objects = [];

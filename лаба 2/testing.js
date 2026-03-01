@@ -1,3 +1,7 @@
+/*
+ * Локальные проверки и отладочные сценарии для быстрой ручной валидации поведения агентов.
+ */
+
 const flags = {
     ft150: {x: -50, y: -39},
     ft140: {x: -40, y: -39},
@@ -109,14 +113,11 @@ function solve(d1, d2, x1, y1, x2, y2, x_bound, y_bound){
 function shuffle(array) {
   let currentIndex = array.length,  randomIndex;
 
-  // While there remain elements to shuffle.
   while (currentIndex > 0) {
 
-    // Pick a remaining element.
     randomIndex = Math.floor(Math.random() * currentIndex);
     currentIndex--;
 
-    // And swap it with the current element.
     [array[currentIndex], array[randomIndex]] = [
       array[randomIndex], array[currentIndex]];
   }
