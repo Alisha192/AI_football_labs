@@ -167,7 +167,7 @@ const DT = {
 			if (state.turn_angle < 0){
 				angle = 45;
 			}
-			angle = 45;
+			angle = -45;
 			state.command = {n: "kick", v: "10 " + angle};
 		},
 		next: "sendCommand",
